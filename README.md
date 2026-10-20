@@ -9,7 +9,7 @@ The original `security-fp-filter` advisory-forever rule stays in force everywher
 3. **P2 — everything else**: Jev `security-triage` gate (blocking, threshold in gates.json) scores "routine background noise".
    - benign ≥ threshold → **HELD** (digest only; written to `held.jsonl` + Jev ledger — never deleted)
    - below threshold / unparsed → ping
-   - **Jev down → fail-open: nothing suppressed**; P0/P1 still ping, rest surfaces in digest flagged `jevDown`
+   - **Jev down → fail-open: zero Jev-based suppression** — P2 clusters all surface flagged `jevDown`; P0/P1 still ping. (The P3 hum rule is deterministic code, not Jev — it keeps holding obvious background noise even with Jev disabled. Held ≠ deleted: everything is in `held.jsonl` + the Jev ledger.)
 
 Adversarial-text mitigation (Chris's original concern, kept bounded): attacker-crafted log text can at worst steer Jev to *digest instead of ping* — but honeytokens/IOCs/burst thresholds are deterministic and sit **above** Jev, so planted markers can't be talked down. Weekly digest review closes the loop.
 
