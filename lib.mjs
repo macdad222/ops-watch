@@ -1,0 +1,170 @@
+// lib.mjs — ops-watch shared core: normalize, cluster, deterministic severity, scrub.
+// Zero deps. Deterministic work only (parsing/IDs/counts/dates) — Jev does semantic judgment.
+import { createHash } from 'node:crypto';
+
+// ── Scrub for egress (Jev rule: no keys/tokens/private contact data to third party) ──
+const SCRUBBERS = [
+  [/\b(sk|rk)-[A-Za-z0-9_-]{8,}/g, 'sk-<redacted>'],
+  [/\bAKIA[0-9A-Z]{16}\b/g, 'AKIA<redacted>'],
+  [/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, 'Bearer <redacted>'],
+  [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '<email>'],
+  [/\b(?:\+?1[-. ]?)?\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b/g, '<phone>'],
+  [/eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '<jwt>'],
+];
+export function scrub(s) {
+  let out = String(s);
+  for (const [re, rep] of SCRUBBERS) out = out.replace(re, rep);
+  return out;
+}
+
+// ── Normalize one raw syslog line into an event ─────────────────────────────
+// Handles: FortiGate KV style, RFC3164-ish "<pri>Mmm dd hh:mm:ss host proc[pid]: msg", bare JSON, bare msg.
+const MONTHS = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+export function normalizeLine(raw, receivedAt = new Date()) {
+  let line = String(raw).trim();
+  if (!line) return null;
+  const ev = { received_at: receivedAt.toISOString(), raw: line.slice(0, 2000), source: 'unknown', host: '', program: '', fields: {} };
+
+  // JSON passthrough
+  if (line.startsWith('{')) {
+    try {
+      const j = JSON.parse(line);
+      ev.source = j.source || j.source_ip || 'json';
+      ev.host = j.host || j.hostname || j.devid || '';
+      ev.program = j.program || j.type || '';
+      ev.fields = j;
+      ev.ts = j.timestamp || j.time || j['@timestamp'] || ev.received_at;
+      ev.message = j.message || j.msg || JSON.stringify(j).slice(0, 500);
+      return finish(ev);
+    } catch { /* fall through */ }
+  }
+
+  // FortiGate KV (date=... time=... devid=... type=... subtype=... level=...)
+  if (/\b(devid|type|subtype|level|vd|logid)=/.test(line)) {
+    ev.source = 'fortigate';
+    const kv = {};
+    for (const m of line.matchAll(/(\w+)=("([^"]*)"|\S+)/g)) kv[m[1]] = m[3] ?? m[2];
+    ev.fields = kv;
+    ev.host = kv.devid || kv.hostname || '';
+    ev.program = kv.type || '';
+    ev.ts = kv.date && kv.time ? `${kv.date.slice(0,4)}-${kv.date.slice(4,6)}-${kv.date.slice(6,8)}T${kv.time}` : ev.received_at;
+    ev.message = kv.msg || kv.action || '';
+    ev.fg = {
+      type: kv.type, subtype: kv.subtype, level: kv.level, action: kv.action,
+      logid: kv.logid, srcip: kv.srcip, dstip: kv.dstip, dstport: kv.dstport,
+      user: kv.user, ui: kv.ui, status: kv.status, service: kv.service,
+    };
+    return finish(ev);
+  }
+
+  // RFC3164-ish
+  const m = line.match(/^(?:<(\d{1,3})>)?([A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([\w./-]+)(?:\[(\d+)\])?:?\s*(.*)$/);
+  if (m) {
+    const [, pri, tstamp, host, program, pid, msg] = m;
+    ev.source = 'syslog';
+    ev.host = host; ev.program = program.replace(/\/.*/, '');
+    ev.fields.pid = pid || '';
+    const now = new Date();
+    const mm = MONTHS[tstamp.slice(0, 3)] ?? now.getMonth();
+    const dd = parseInt(tstamp.slice(4, 6), 10) || now.getDate();
+    const hhmmss = tstamp.slice(7);
+    ev.ts = new Date(`${now.getFullYear()}-${String(mm + 1).padStart(2, '0')}-${String(dd).padStart(2, '0')}T${hhmmss}`).toISOString();
+    ev.fields.pri = pri ? parseInt(pri, 10) : null;
+    ev.message = msg;
+    // auth user extraction (sshd/login/su) so cross-cluster user counting works
+    const um = msg.match(/\b(?:failed|invalid)\b.*?\bfor (?:invalid user )?(\S+) from/i) || msg.match(/\bsession (?:opened|closed) for user (\S+)/i);
+    if (um) ev.fields.user = um[1];
+    return finish(ev);
+  }
+
+  // Bare message / app log line
+  ev.source = 'app'; ev.message = line; return finish(ev);
+
+  function finish(e) {
+    if (!e.ts) e.ts = e.received_at;   // never leave ts undefined — NaN would poison window math
+    e.message = String(e.message || '').slice(0, 500);
+    e.sig = signature(e);
+    return e;
+  }
+}
+
+// ── Signature: what makes two events "the same thing" ───────────────────────
+export function signature(e) {
+  const parts = [e.source, e.host, e.program];
+  const f = e.fields || {};
+  if (e.source === 'fortigate') {
+    parts.push(f.subtype || '', f.action || '', f.level || '', f.dstport || '', f.service || '');
+    if (f.srcip) parts.push(maskIp(f.srcip));   // mask last octet: same subnet+behavior clusters together
+    if (f.dstip) parts.push(maskIp(f.dstip));
+    if (f.user) parts.push('user=' + f.user);
+  } else {
+    const msg = e.message || '';
+    parts.push(msg.replace(/\b\d{1,3}(\.\d{1,3}){3}\b/g, '<ip>')
+                  .replace(/\bfor (?:invalid user )?\S+ from\b/i, 'for <user> from') // auth sig ignores username → all failed logins cluster
+                  .replace(/\b[0-9a-f]{8,}\b/gi, '<hex>')
+                  .replace(/\b\d+\b/g, '<n>')
+                  .slice(0, 90));
+  }
+  return createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 12);
+}
+function maskIp(ip) { const o = ip.split('.'); return o.length === 4 ? `${o[0]}.${o[1]}.${o[2]}.x` : ip; }
+
+// ── Cluster events by signature within a time window ────────────────────────
+export function clusterEvents(events, windowMin = 5) {
+  const sorted = [...events].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const tEnd = new Date(sorted.at(-1)?.ts ?? Date.now()).getTime();
+  const win = { start: new Date(tEnd - windowMin * 60000).toISOString(), end: new Date(tEnd).toISOString() };
+  const bySig = new Map();
+  for (const e of sorted) {
+    if (new Date(e.ts).getTime() < tEnd - windowMin * 60000) continue; // window only
+    if (!bySig.has(e.sig)) bySig.set(e.sig, []);
+    bySig.get(e.sig).push(e);
+  }
+  const clusters = [];
+  for (const [sig, evs] of bySig) {
+    const first = evs[0];
+    clusters.push({
+      sig, count: evs.length,
+      source: first.source, host: first.host, program: first.program,
+      fg: first.fg || null,
+      distinct_users: new Set(evs.map(e => e.fg?.user || e.fields?.user).filter(Boolean)).size,
+      distinct_ips: new Set(evs.flatMap(e => [e.fg?.srcip, e.fg?.dstip]).filter(Boolean)).size,
+      first_seen: evs[0].ts, last_seen: evs.at(-1).ts,
+      samples: evs.slice(0, 3).map(e => e.message),
+      events: evs,
+    });
+  }
+  return { window: win, clusters: clusters.sort((a, b) => b.count - a.count) };
+}
+
+// ── Deterministic severity layer — ALWAYS overrides Jev ─────────────────────
+// P0 EMERGENCY (honeytoken/IOC) and P1 DETERMINISTIC-PING beats any Jev verdict.
+// Jev blocking only ever applies to events this layer scored low.
+export function deterministicVerdict(cluster, honey) {
+  const text = cluster.events.map(e => e.raw).join(' ');
+  const lowText = text.toLowerCase();
+  for (const s of honey.strings || []) if (lowText.includes(String(s).toLowerCase()))
+    return { level: 'P0', why: `honeytoken string match: ${s}` };
+  for (const u of honey.users || []) if (lowText.includes(String(u).toLowerCase()))
+    return { level: 'P0', why: `canary account mentioned in event text: ${u}` };
+  for (const d of honey.domains || []) if (lowText.includes(String(d).toLowerCase()))
+    return { level: 'P0', why: `canary domain lookup: ${d}` };
+  for (const ioc of honey.iocs || []) if (lowText.includes(String(ioc).toLowerCase()))
+    return { level: 'P0', why: `IOC match: ${ioc}` };
+
+  if (cluster.fg && /config|update/.test(cluster.fg.action || '') ) 
+    return { level: 'P1', why: `firewall config change (action=${cluster.fg.action})` };
+  if (cluster.program === 'sudo' || cluster.program === 'su' && /session/i.test(cluster.samples[0] || ''))
+    return { level: 'P1', why: 'privilege escalation event' };
+  if (cluster.distinct_users >= 3 && /fail|invalid|denied/i.test((cluster.samples.join(' '))))
+    return { level: 'P1', why: `auth failures across ${cluster.distinct_users} distinct users` };
+  if (cluster.count >= 50)
+    return { level: 'P1', why: `volume burst: ${cluster.count} events in window` };
+  if (/level=(alert|emergency|critical)|<0>|<1>|<2>/.test(text))
+    return { level: 'P1', why: 'critical-severity event by syslog level' };
+  // P3 — deterministic background hum: high repetition, zero danger keywords.
+  // Code-level suppression (not Jev) — standard SIEM known-pattern handling; held items stay visible.
+  if (cluster.count >= 8 && !/error|warn|fail|denied|invalid|alert|critical|refused|timeout/i.test(cluster.samples.join(' ')))
+    return { level: 'P3', why: `recurring background pattern (×${cluster.count}, no danger keywords)` };
+  return { level: 'P2', why: 'no deterministic signal' };
+}

@@ -1,0 +1,6 @@
+{
+  "strings": ["XJ7-CANARY-CRED-2026", "canary-token-9f3ad81c"],
+  "users": ["svc-backup-adm", "postgres_diag"],
+  "domains": ["cmaclab-canary.internal", "ns1.cmaclab-canary.net"],
+  "iocs": []
+}

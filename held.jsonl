@@ -1,0 +1,3 @@
+{"ts":"2026-10-20T22:23:24.569Z","sig":"5b39eeb68977","source":"fortigate","program":"traffic","count":40,"benignProb":null,"heldBy":"deterministic-hum","why":"recurring background pattern (×40, no danger keywords)"}
+{"ts":"2026-10-20T22:23:24.569Z","sig":"5366fc746438","source":"syslog","program":"systemd","count":12,"benignProb":null,"heldBy":"deterministic-hum","why":"recurring background pattern (×12, no danger keywords)"}
+{"ts":"2026-10-20T22:23:34.375Z","sig":"b826e6d7ceba","source":"fortigate","program":"traffic","count":30,"benignProb":null,"heldBy":"deterministic-hum","why":"recurring background pattern (×30, no danger keywords)"}
