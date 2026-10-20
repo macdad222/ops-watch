@@ -1,0 +1,60 @@
+{
+  "rules": [
+    {
+      "name": "postgres-fatal",
+      "match": { "job": ".*(db|postgres).*" },
+      "patterns": ["FATAL", "PANIC"],
+      "minCount": 1,
+      "level": "P1",
+      "why": "database fatal error"
+    },
+    {
+      "name": "litellm-error-burst",
+      "match": { "job": "litellm-linux-test|litellm-agentic-gateway" },
+      "patterns": ["LiteLLM:ERROR", "API Server Error", "Traceback", "HTTPException"],
+      "minCount": 5,
+      "level": "P1",
+      "why": "LiteLLM error burst"
+    },
+    {
+      "name": "vllm-engine-failure",
+      "match": { "job": "vllm-.*" },
+      "patterns": ["CUDA out of memory", "EngineCore failed", "EngineDead", "Traceback"],
+      "minCount": 1,
+      "level": "P1",
+      "why": "vLLM engine failure — model lane down"
+    },
+    {
+      "name": "cloudflared-tunnel-down",
+      "match": { "job": "cloudflared" },
+      "patterns": ["Lost connection", "failed to connect to the origin", "Unable to reach the origin service", "Connection terminated"],
+      "minCount": 1,
+      "level": "P1",
+      "why": "Cloudflare tunnel disruption — public LiteLLM path affected"
+    },
+    {
+      "name": "kernel-oom",
+      "match": { "job": "kernel|syslog" },
+      "patterns": ["Out of memory: Killed process", "oom-kill", "oom_reaper"],
+      "minCount": 1,
+      "level": "P1",
+      "why": "OOM kill on host"
+    },
+    {
+      "name": "detected-fatal-level",
+      "match": { "detected_level": "fatal|critical" },
+      "patterns": [],
+      "minCount": 1,
+      "level": "P1",
+      "why": "promtail detected fatal/critical severity"
+    },
+    {
+      "name": "detected-error-burst",
+      "match": { "detected_level": "error" },
+      "patterns": [],
+      "minCount": 5,
+      "level": "P1",
+      "why": "error-level log burst (5+ in window)"
+    }
+  ]
+}

@@ -1,13 +1,17 @@
 // notify.mjs — Telegram delivery for ops-watch. Bot token read at runtime from
 // MEMORY.md (never typed/inlined — exec redactor lesson). Zero deps.
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const MEM_PATH = '/Users/chrismacfarland/clawd/MEMORY.md';
 const CHAT_ID = '309983163';
 
 export function getToken() {
+  if (process.env.TG_BOT_TOKEN) return process.env.TG_BOT_TOKEN;
+  try { const v = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'secrets/tg.cred'), 'utf8').trim(); if (v) return v; } catch { /* no cred file */ }
   const m = readFileSync(MEM_PATH, 'utf8').match(/(\d{9,11}:[A-Za-z0-9_-]{30,45})/);
-  if (!m) throw new Error('bot token not found in MEMORY.md');
+  if (!m) throw new Error('bot token not found (env TG_BOT_TOKEN, secrets/tg.cred, MEMORY.md)');
   return m[1];
 }
 

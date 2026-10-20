@@ -1,0 +1,20 @@
+services:
+  ops-watch:
+    build: .
+    container_name: ops-watch
+    restart: always
+    ports:
+      - "15140:15140/udp"
+    environment:
+      - LOKI_URL=${LOKI_URL:-http://192.168.5.56:3100}
+      - CYCLE_SEC=${CYCLE_SEC:-300}
+      - OPSWATCH_BIND=0.0.0.0:15140
+      - OPSWATCH_OUT=data/events.jsonl
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./secrets/tg.cred:/app/secrets/tg.cred:ro
+      - ./config/gates.json:/app/jev/gates.json:ro
+      - ./config/ts-lane-id.txt:/app/jev/ts-lane-id.txt:ro
+      - ./config/model-pin.txt:/app/jev/model-pin.txt:ro
+      - ./data/jev-decisions.log:/app/jev/decisions.log

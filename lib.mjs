@@ -158,13 +158,61 @@ export function deterministicVerdict(cluster, honey) {
     return { level: 'P1', why: 'privilege escalation event' };
   if (cluster.distinct_users >= 3 && /fail|invalid|denied/i.test((cluster.samples.join(' '))))
     return { level: 'P1', why: `auth failures across ${cluster.distinct_users} distinct users` };
+  // Level-based hum: debug spam always; info floods (scrapes, engine stats) at volume
+  const lvl0 = String(cluster.events[0]?.fields?.detected_level || '').toLowerCase();
+  if (lvl0 === 'debug')
+    return { level: 'P3', why: 'debug-level log volume (always background)' };
+  if (lvl0 === 'info' && cluster.count >= 15)
+    return { level: 'P3', why: `info-level volume (×${cluster.count}) — background` };
   if (cluster.count >= 50)
     return { level: 'P1', why: `volume burst: ${cluster.count} events in window` };
   if (/level=(alert|emergency|critical)|<0>|<1>|<2>/.test(text))
     return { level: 'P1', why: 'critical-severity event by syslog level' };
+  // Health/metrics scrape hum — always digest regardless of count (promtail-era noise)
+  if (/["']?(GET|POST) \/(health|metrics|ready|livez|status)[^"']*HTTP\/1\.[01]"? 200 |GET \/ HTTP\/1\.[01]" 200 /.test(cluster.samples.join(' ')))
+    return { level: 'P3', why: 'health/metrics scrape traffic (always background)' };
   // P3 — deterministic background hum: high repetition, zero danger keywords.
   // Code-level suppression (not Jev) — standard SIEM known-pattern handling; held items stay visible.
   if (cluster.count >= 8 && !/error|warn|fail|denied|invalid|alert|critical|refused|timeout/i.test(cluster.samples.join(' ')))
     return { level: 'P3', why: `recurring background pattern (×${cluster.count}, no danger keywords)` };
   return { level: 'P2', why: 'no deterministic signal' };
+}
+
+// ── Loki-tail event builder (pre-shaped {source,host,program,level,ts,message}) ──
+export function buildLokiEvent(j) {
+  const e = {
+    received_at: new Date().toISOString(),
+    raw: String(j.message || '').slice(0, 2000),
+    source: j.source || 'loki',
+    host: j.host || '',
+    program: j.program || '',
+    ts: j.ts || new Date().toISOString(),
+    message: String(j.message || ''),
+    fields: { detected_level: j.level || null, job: j.program || '' },
+  };
+  e.sig = signature(e);
+  return e;
+}
+
+// ── App rules layer (rules.json) — deterministic, code-level, sits above Jev ──
+// match: {job, detected_level, host} regexes against event fields; patterns: any-match against samples.
+// Verdict P1 when cluster.count >= minCount.
+export function appRulesVerdict(cluster, rules) {
+  const first = cluster.events[0] || {};
+  const job = first.fields?.job || first.program || '';
+  const lvl = first.fields?.detected_level || '';
+  const host = cluster.host || '';
+  const samples = cluster.samples.join(' ');
+  for (const r of rules || []) {
+    const m = r.match || {};
+    if (m.job && !new RegExp(m.job, 'i').test(job)) continue;
+    if (m.detected_level && !new RegExp(m.detected_level, 'i').test(lvl)) continue;
+    if (m.host && !new RegExp(m.host, 'i').test(host)) continue;
+    if (cluster.count < (r.minCount ?? 1)) continue;
+    if (r.patterns && r.patterns.length) {
+      if (!r.patterns.some(p => new RegExp(p, 'i').test(samples))) continue;
+    }
+    return { level: r.level || 'P1', why: `rule ${r.name}: ${r.why}` };
+  }
+  return null;
 }

@@ -10,15 +10,20 @@
 //     blocking mode: benign >= threshold → HELD (digest only; ledgered, never deleted).
 //     Jev down/unsure → fail-open: goes to digest AND flagged unparsed — never silently lost.
 // All decisions append to the Jev ledger (gate: security-triage).
-import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { normalizeLine, clusterEvents, deterministicVerdict, scrub } from './lib.mjs';
+import { normalizeLine, clusterEvents, deterministicVerdict, appRulesVerdict, buildLokiEvent, scrub } from './lib.mjs';
 import { sendTelegram, pingMessage } from './notify.mjs';
-import { jev, gateConfig, logDecision } from '../jev/jev-gate.mjs';
+let _jev;
+try { _jev = await import('../jev/jev-gate.mjs'); }        // repo layout (mini)
+catch { _jev = await import('./jev/jev-gate.mjs'); }        // container layout (/app)
+const { jev, gateConfig, logDecision } = _jev;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HONEY = JSON.parse(readFileSync(join(HERE, 'honeytokens.json'), 'utf8'));
+let RULES = [];
+try { RULES = JSON.parse(readFileSync(join(HERE, 'rules.json'), 'utf8')).rules || []; } catch { /* no rules file → generic layer only */ }
 const GATE = 'security-triage';
 
 const args = process.argv.slice(2);
@@ -26,9 +31,43 @@ const file = args.find(a => !a.startsWith('--'));
 const windowMin = parseInt(args[(args.indexOf('--window-min') ?? -2) + 1]) || 5;
 const live = args.includes('--live');
 const digestOnly = args.includes('--digest-only');
+const stateFile = args.includes('--state-file') ? args[args.indexOf('--state-file') + 1] : null;
+const REPEAT_HOURS = 4;
+let pingState = { lastP1: {} };
+if (stateFile) { try { pingState = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { pingState = { lastP1: {} }; } }
+pingState.lastP1 = pingState.lastP1 || {};
+function suppressRepeat(sig) {
+  const last = pingState.lastP1[sig];
+  if (last && Date.now() - last < REPEAT_HOURS * 3600000) return true;
+  return false;
+}
 if (!file) { console.error('usage: triage.mjs <events.jsonl> [--window-min N] [--live] [--digest-only]'); process.exit(1); }
 
-const events = readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => normalizeLine(l)).filter(Boolean);
+let offset = 0;
+if (stateFile) {
+  try { offset = JSON.parse(readFileSync(stateFile, 'utf8')).offset || 0; } catch { offset = 0; }
+}
+const stat = existsSync(file) ? statSync(file) : { size: 0 };
+if (stat.size < offset) offset = 0; // rotated/truncated
+const rawLines = stat.size > offset
+  ? readFileSync(file, 'utf8').slice(offset).split('\n').filter(Boolean)
+  : [];
+// note: last line may be partial — only safe if file ends with \n
+if (rawLines.length && !readFileSync(file, 'utf8').endsWith('\n')) { rawLines.pop(); }
+const newOffset = offset + Buffer.byteLength(rawLines.join('\n') + (rawLines.length ? '\n' : ''));
+const events = [];
+for (const l of rawLines) {
+  let ev = null;
+  if (l.startsWith('{')) {
+    try {
+      const j = JSON.parse(l);
+      if (j.line !== undefined) ev = normalizeLine(j.line, j.received_at ? new Date(j.received_at) : undefined);
+      else if (j.message !== undefined) ev = buildLokiEvent(j);
+    } catch { /* fall through to raw */ }
+  }
+  if (!ev) ev = normalizeLine(l);
+  if (ev) events.push(ev);
+}
 const { window, clusters } = clusterEvents(events, windowMin);
 const cfg = gateConfig(GATE) || { enabled: true, threshold: 0.75, mode: 'blocking' };
 const th = cfg.threshold ?? 0.75;
@@ -36,7 +75,8 @@ const th = cfg.threshold ?? 0.75;
 // ── Layer 1: deterministic ────────────────────────────────────────────────────
 const p0 = [], p1 = [], p2 = [], p3 = [];
 for (const c of clusters) {
-  const v = deterministicVerdict(c, HONEY);
+  const appV = appRulesVerdict(c, RULES);
+  const v = appV || deterministicVerdict(c, HONEY);
   if (v.level === 'P0') p0.push({ cluster: c, verdict: v });
   else if (v.level === 'P1') p1.push({ cluster: c, verdict: v });
   else if (v.level === 'P3') p3.push({ cluster: c, verdict: v });
@@ -50,7 +90,7 @@ const held = [], pingFromJev = [], jevDown = [];
 for (const x of p3) held.push({ ...x, benignProb: null, heldBy: 'deterministic-hum' });
 logDecision({ gate: GATE, action: 'hold-hum', pass: true, count: p3.length });
 if (p2.length && cfg.enabled !== false) {
-  const capped = p2.slice(0, 20); // batch cap; overflow → ping (never silently dropped)
+  const capped = p2.slice(0, 150); // batch cap (Jev ≈ $0.00002/verdict; 150 ≈ $0.003/cycle)
   const overflow = p2.slice(20);
   const state = capped.map((x, i) => {
     const c = x.cluster;
@@ -71,7 +111,7 @@ if (p2.length && cfg.enabled !== false) {
       else if (p >= th) held.push({ ...x, benignProb: p });
       else pingFromJev.push({ ...x, benignProb: p, verdict: { ...x.verdict, why: `jev scored novel (benign ${p.toFixed(2)} < ${th})` } });
     });
-    overflow.forEach(x => pingFromJev.push({ ...x, verdict: { ...x.verdict, why: 'batch overflow → escalated' } }));
+    overflow.forEach(x => held.push({ ...x, benignProb: null, heldBy: 'batch-overflow' }));
   } catch (e) {
     // fail-open: Jev down → NOTHING is suppressed; everything surfaces (digest), ping only P0/P1
     console.error(`jev unavailable (${e.message}) — fail-open: no suppression this cycle`);
@@ -87,20 +127,30 @@ for (const h of held) logDecision({ gate: GATE, action: 'hold-noise', pass: true
   count: h.cluster.count, benignProb: h.benignProb, source: h.cluster.source });
 
 // ── Output ────────────────────────────────────────────────────────────────────
-const pings = [...p0, ...p1, ...pingFromJev];
+const pingsRaw = [...p0, ...p1, ...pingFromJev];
+const pings = [], repeatHeld = [];
+for (const x of pingsRaw) {
+  if (x.verdict.level !== 'P0' && suppressRepeat(x.cluster.sig)) {
+    repeatHeld.push({ ...x, heldBy: 'repeat-suppressed', repeatOf: pingState.lastP1[x.cluster.sig] });
+  } else {
+    pingState.lastP1[x.cluster.sig] = Date.now();
+    pings.push(x);
+  }
+}
 const result = {
   window,
-  counts: { clusters: clusters.length, p0: p0.length, p1: p1.length, jevPing: pingFromJev.length, held: held.length, jevDown: jevDown.length },
+  counts: { clusters: clusters.length, p0: p0.length, p1: p1.length, jevPing: pingFromJev.length, held: held.length + repeatHeld.length, jevDown: jevDown.length, repeatsHeld: repeatHeld.length },
   pings: pings.map(x => ({ level: x.verdict.level, why: x.verdict.why, source: x.cluster.source, program: x.cluster.program,
     count: x.cluster.count, host: x.cluster.host, sample: (x.cluster.samples[0] || '').slice(0, 160) })),
-  held: held.map(x => ({ sig: x.cluster.sig, benignProb: x.benignProb, source: x.cluster.source, program: x.cluster.program,
-    count: x.cluster.count, sample: (x.cluster.samples[0] || '').slice(0, 100) })),
+  held: [...repeatHeld.map(x => ({ sig: x.cluster.sig, benignProb: null, heldBy: 'repeat-suppressed', source: x.cluster.source, program: x.cluster.program, count: x.cluster.count, sample: (x.cluster.samples[0] || '').slice(0, 100) })), ...held.map(x => ({ sig: x.cluster.sig, benignProb: x.benignProb, source: x.cluster.source, program: x.cluster.program,
+    count: x.cluster.count, sample: (x.cluster.samples[0] || '').slice(0, 100) }))],
   jevDown: jevDown.map(x => ({ sig: x.cluster.sig, source: x.cluster.source, count: x.cluster.count })),
 };
 appendFileSync(join(HERE, 'held.jsonl'), held.map(h => JSON.stringify({ ts: new Date().toISOString(), sig: h.cluster.sig,
   source: h.cluster.source, program: h.cluster.program, count: h.cluster.count,
   benignProb: h.benignProb, heldBy: h.heldBy || 'jev-benign', why: h.verdict?.why })).join('\n') + (held.length ? '\n' : ''));
 
+if (stateFile) writeFileSync(stateFile, JSON.stringify({ offset: newOffset, lastP1: pingState.lastP1 }));
 console.log(JSON.stringify(result, null, 2));
 
 if (live && pings.length && !digestOnly) {
