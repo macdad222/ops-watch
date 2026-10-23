@@ -55,6 +55,86 @@
       "minCount": 5,
       "level": "P1",
       "why": "error-level log burst (5+ in window)"
+    },
+    {
+      "name": "omlx-lane-failure",
+      "match": { "job": "omlx-serve|omlx-embed-adapter|embed-proxy|vllm-mlx-embed" },
+      "patterns": ["Traceback", "CUDA out of memory", "Address already in use", "model load failed", "load_failed", "FATAL", "exited with"],
+      "minCount": 1,
+      "level": "P1",
+      "why": "vision/omlx lane failure (M6 mini .135 / M5Max)"
+    },
+    {
+      "name": "omlx-error-burst",
+      "match": { "job": "omlx-serve|omlx-embed-adapter|embed-proxy|vllm-mlx-embed" },
+      "patterns": ["ERROR"],
+      "minCount": 8,
+      "level": "P1",
+      "why": "omlx/vision lane error burst"
+    },
+    {
+      "name": "voice-lane-failure",
+      "match": { "job": "voice-bridge|voice-v3" },
+      "patterns": ["EADDRINUSE", "UnhandledPromiseRejection", "FATAL", "exited with"],
+      "minCount": 1,
+      "level": "P1",
+      "why": "voice lane failure on mini"
+    },
+    {
+      "name": "openclaw-gateway-failure",
+      "match": { "job": "openclaw-gateway" },
+      "patterns": ["FATAL", "EADDRINUSE", "UnhandledPromiseRejection", "exited with"],
+      "minCount": 1,
+      "level": "P1",
+      "why": "OpenClaw gateway failure — agent brain offline (meta-monitoring)"
+    },
+    {
+      "name": "watchdog-failure-burst",
+      "match": { "job": "m5max-watchdog|sonos-watchdog" },
+      "patterns": ["error", "failed", "ECONNREFUSED"],
+      "minCount": 5,
+      "level": "P1",
+      "why": "watchdog error burst"
+    },
+    {
+      "name": "homebridge-failure",
+      "match": { "job": "homebridge" },
+      "patterns": ["ERROR", "FATAL", "EADDRINUSE"],
+      "minCount": 2,
+      "level": "P1",
+      "why": "homebridge failure — smart home impacted"
+    },
+    {
+      "name": "fortigate-admin-auth-fail",
+      "match": { "job": "fortigate" },
+      "patterns": ["Admin login failed", "ssl-login-fail", "admin_lockout"],
+      "minCount": 3,
+      "level": "P1",
+      "why": "FortiGate admin/VPN auth failures — brute-force signature (cf. Oct 21 WAN attack)"
+    },
+    {
+      "name": "fortigate-botnet-c2",
+      "match": { "job": "fortigate" },
+      "patterns": ["Botnet C&C", "botnet_c2c", "Botnet callback"],
+      "minCount": 10,
+      "level": "P1",
+      "why": "sustained botnet C&C blocks — a host may be beaconing"
+    },
+    {
+      "name": "ssh-bruteforce",
+      "match": { "job": "syslog" },
+      "patterns": ["Failed password", "Invalid user", "authentication failure"],
+      "minCount": 10,
+      "level": "P1",
+      "why": "SSH brute-force burst on a fleet host"
+    },
+    {
+      "name": "honeytoken-trigger",
+      "match": { "job": ".*" },
+      "patterns": ["HONEYTOKEN"],
+      "minCount": 1,
+      "level": "P1",
+      "why": "honeytoken touched — someone is poking where they should not (Phase 3 plants feed this)"
     }
   ]
 }

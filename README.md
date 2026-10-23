@@ -1,19 +1,19 @@
 # ops-watch
 
-**Jev-gated telemetry triage for the whole fleet** — FortiGate firewall, Linux servers, Docker apps, Mac services. Turns thousands of log events into a handful of Telegram pings that matter, holds the rest in an auditable digest, and never silently drops anything.
+**Jev-gated telemetry triage for the whole fleet** — FortiGate firewall, Linux servers, Docker apps, Mac services. Turns thousands of log events into a handful of Telegram pings that matter, holds the rest in an auditable digest, and never silently drops anything. The judgment layer is **Jev (TypeSafe System One)** — a fast, cheap, typed-decision AI that only ever answers "routine or novel?" on the ambiguous middle band, wrapped in deterministic guardrails. See [docs/JEV.md](docs/JEV.md).
 
 > **Authorized mode:** the `security-triage` gate runs **BLOCKING** per Chris (2026-10-20), scoped to this pipeline only. Original advisory-forever rule for `security-fp-filter` still governs everywhere else. See [docs/RULES.md](docs/RULES.md) for the safety contract.
 
 ## TL;DR architecture
 
 ```
-FortiGate ──UDP syslog:15140──┐
-Mac services ──UDP JSON───────┤
-                              ▼
-                    ┌── receiver.mjs ──┐      ┌── Loki (mini :3100) ──┐
-                    │  events.jsonl    │◄─────┤ loki-tail.mjs poller  │
-                    └────────┬─────────┘      └───(promtail agents)───┘
-                             ▼
+Mac services ──udp-shipper.py──────┐  (mini + M5Max push; .135 pulled
+                                   │   by ssh-log-pull.py on the mini)
+                                   ▼
+                    ┌── receiver.mjs ──┐      ┌── Loki (.110 :3100) ──────────┐
+                    │  events.jsonl    │◄─────┤ loki-tail.mjs (in-container tap)
+                    └────────┬─────────┘      │  (promtail agents + FortiGate │
+                             ▼                │   via mini:514 collector.py)  │
                     ┌── triage.mjs (every 5 min) ──────────────────┐
                     │ 1. deterministic: honeytokens/IOCs → P0      │
                     │ 2. app rules (rules.json)         → P1       │
@@ -25,7 +25,7 @@ Mac services ──UDP JSON───────┤
                    Telegram ping (P0/P1/novel)   held.jsonl + Jev ledger
 ```
 
-**Live deployment:** Docker container `ops-watch` on **.110** (restart-always), tapping Loki on the mini, receiver on UDP :15140. FortiGate sends there.
+**Live deployment:** Docker container `ops-watch` on **.110** (restart-always). Two FortiGate legs: the mini's `fortigate-514-bridge/collector.py` feeds **both** Loki (job=fortigate-syslog, for Grafana) **and** the receiver (:15140 UDP); loki-tail therefore skips the fortigate job. Linux hosts (.110/.120/.115) ship syslog + kern + **auth.log** via promtail containers → Loki. Alert latency: seconds to ingest, ≤5 min to Telegram (300s triage cycle), repeat-suppressed 4h for P1, never for P0.
 
 ## Quickstart (mini)
 
@@ -57,6 +57,8 @@ node triage.mjs /tmp/ev.jsonl --digest-only      # classify without pinging
 | `triage.mjs` | the decision pipeline + Jev gate call + Telegram pings |
 | `notify.mjs` | Telegram sender (token: env `TG_BOT_TOKEN` → `secrets/tg.cred` → MEMORY.md) |
 | `rules.json` | app-specific P1 rules — **add rules here, not in code** |
+| `udp-shipper.py` | Mac log tailer → UDP JSON envelopes (launchd `com.jarvon.udp-shipper`; mini 9 files, M5Max 3) |
+| `ssh-log-pull.py` | SSH pull collector on the mini for .135's logs (Local Network TCC workaround) |
 | `honeytokens.json` | canary definitions — must match real planted artifacts |
 | `ticker.sh` | container loop: receiver + 5-min cycles + compaction |
 | `demo.mjs` | synthetic 71-event proof run |
@@ -64,6 +66,9 @@ node triage.mjs /tmp/ev.jsonl --digest-only      # classify without pinging
 
 ## The docs
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — data flow, state, Loki integration, fleet map
-- [docs/RUNBOOK.md](docs/RUNBOOK.md) — deploy/update/rollback, health checks, troubleshooting (includes every gotcha hit during the real deploy)
+- [docs/GUIDE.md](docs/GUIDE.md) — **start here**: the plain-English guide (no jargon), how to read an alert, glossary
+- [docs/JEV.md](docs/JEV.md) — **the novel tech**: Jev principles, **why the system is nearly impossible without it (with live measured numbers)**, the full ops-watch judgment flow, the safety contract, thresholds/ledger/calibration
+- [docs/USE-CASES.md](docs/USE-CASES.md) — every high-value use case with real examples (the Oct 21 firewall attack, the SD-WAN forensic)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — data flow, fleet map, SD-WAN member→ISP mapping, state, Loki integration
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) — deploy/update/rollback, health checks, shipper ops, troubleshooting (includes every gotcha hit during the real deploys)
 - [docs/RULES.md](docs/RULES.md) — rule authoring + the security contract (what Jev may and may never do)

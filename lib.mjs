@@ -47,7 +47,9 @@ export function normalizeLine(raw, receivedAt = new Date()) {
     ev.fields = kv;
     ev.host = kv.devid || kv.hostname || '';
     ev.program = kv.type || '';
-    ev.ts = kv.date && kv.time ? `${kv.date.slice(0,4)}-${kv.date.slice(4,6)}-${kv.date.slice(6,8)}T${kv.time}` : ev.received_at;
+    ev.ts = kv.date && kv.time ? (kv.date.includes('-')
+      ? `${kv.date}T${kv.time}`
+      : `${kv.date.slice(0,4)}-${kv.date.slice(4,6)}-${kv.date.slice(6,8)}T${kv.time}`) : ev.received_at;
     ev.message = kv.msg || kv.action || '';
     ev.fg = {
       type: kv.type, subtype: kv.subtype, level: kv.level, action: kv.action,

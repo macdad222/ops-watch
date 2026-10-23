@@ -10,11 +10,12 @@
 //     blocking mode: benign >= threshold → HELD (digest only; ledgered, never deleted).
 //     Jev down/unsure → fail-open: goes to digest AND flagged unparsed — never silently lost.
 // All decisions append to the Jev ledger (gate: security-triage).
-import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { normalizeLine, clusterEvents, deterministicVerdict, appRulesVerdict, buildLokiEvent, scrub } from './lib.mjs';
 import { sendTelegram, pingMessage } from './notify.mjs';
+import { assess, esc } from './assess.mjs';   // analyst enrichment (PLAN-qwen-assess 2026-10-23)
 let _jev;
 try { _jev = await import('../jev/jev-gate.mjs'); }        // repo layout (mini)
 catch { _jev = await import('./jev/jev-gate.mjs'); }        // container layout (/app)
@@ -49,12 +50,29 @@ if (stateFile) {
 }
 const stat = existsSync(file) ? statSync(file) : { size: 0 };
 if (stat.size < offset) offset = 0; // rotated/truncated
-const rawLines = stat.size > offset
-  ? readFileSync(file, 'utf8').slice(offset).split('\n').filter(Boolean)
-  : [];
-// note: last line may be partial — only safe if file ends with \n
-if (rawLines.length && !readFileSync(file, 'utf8').endsWith('\n')) { rawLines.pop(); }
-const newOffset = offset + Buffer.byteLength(rawLines.join('\n') + (rawLines.length ? '\n' : ''));
+// Bounded incremental read (2026-10-23): read only bytes [offset, end) instead of
+// slurping the whole file — readFileSync hit Node's ~512MB string limit once
+// events.jsonl grew past it and crashed every cycle (ERR_STRING_TOO_LONG).
+// 64MB cap/cycle ≈ 768MB/h at the 5-min cadence; a bigger burst just finishes next cycle.
+const READ_CAP = 64 * 1024 * 1024;
+const end = Math.min(stat.size, offset + READ_CAP);
+let rawLines = [];
+let consumed = 0;
+if (end > offset) {
+  const buf = Buffer.alloc(end - offset);
+  const fd = openSync(file, 'r');
+  try { readSync(fd, buf, 0, buf.length, offset); } finally { closeSync(fd); }
+  // Keep only complete lines: cut at the last newline IN BYTE SPACE so the saved
+  // offset always lands on a line boundary (receiver writes line + '\n' per event).
+  // A torn last line (or cap-hit mid-line) is simply re-read next cycle.
+  const nlByte = buf.lastIndexOf(0x0a);
+  if (nlByte >= 0) {
+    const lineBytes = buf.subarray(0, nlByte + 1);
+    consumed = lineBytes.length;
+    rawLines = lineBytes.toString('utf8').split('\n').filter(Boolean);
+  }
+}
+const newOffset = offset + consumed;
 const events = [];
 for (const l of rawLines) {
   let ev = null;
@@ -155,6 +173,32 @@ console.log(JSON.stringify(result, null, 2));
 
 if (live && pings.length && !digestOnly) {
   const body = pings.slice(0, 10).map(x => pingMessage(x.cluster, x.verdict, { test: process.env.OPSWATCH_TEST === '1' })).join('\n\n———\n\n');
-  await sendTelegram(body);
-  console.error(`pinged ${Math.min(pings.length, 10)} cluster(s) to Telegram`);
+  try {
+    await sendTelegram(body);
+    console.error(`pinged ${Math.min(pings.length, 10)} cluster(s) to Telegram`);
+  } catch (e) {
+    // never let a Telegram hiccup kill the triage cycle — the digest/hold state is already written
+    console.error(`telegram ping FAILED: ${String(e && e.message || e).slice(0, 150)}`);
+  }
+  // Analyst enrichment (Qwen3.8-27B-t8k via LiteLLM): pings already sent — this can only
+  // ADD a follow-up assessment, never delay or suppress. Fail-open: null → skip silently.
+  const tAssess = Date.now();
+  const a = await assess(pings.slice(0, 10), { windowMin }).catch(() => null);
+  if (a) {
+    const lines = pings.slice(0, 10).map((x, i) => {
+      const t = (a.assessments[`c${i}`] || '').trim();
+      return t ? `▪ c${i} · ${esc(x.cluster.program || x.cluster.source || '?')}: ${esc(t)}` : null;
+    }).filter(Boolean).join('\n\n');
+    if (lines) {
+      try {
+        await sendTelegram(`🧠 <b>ops-watch assessment</b> (${esc(a.model)})\n\n${lines}`.slice(0, 3850));
+        console.error(`assessment sent (${a.latencyMs}ms)`);
+      } catch (e) {
+        console.error(`assessment telegram FAILED: ${String(e && e.message || e).slice(0, 120)}`);
+      }
+    }
+    logDecision({ gate: GATE, action: 'assess', pass: true, latency_ms: a.latencyMs, model: a.model });
+  } else {
+    logDecision({ gate: GATE, action: 'assess', pass: false, latency_ms: Date.now() - tAssess, note: 'disabled or fail-open (no assessment)' });
+  }
 }

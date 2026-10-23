@@ -22,13 +22,16 @@
 **Mac mini (this box, .56) — Jarvon home**
 - OpenClaw gateway, voice-bridge, voice-v3, lab-sentinel, m5max/sonos/telegram watchdogs, mcporter daemon
 - **Loki :3100 + Grafana :3002 (login wall)** — the log brain already lives here
-- Unknown-to-me listeners: :8090 (web UI), :3001, :1515 — will ID during rollout
+- Listeners resolved (Phase 2, 2026-10-22): :8090 = lan-dashboard web UI container, :1515 = fortigate-syslog-promtail TCP listener, :3001 = fortigate-mcp server (all Docker Desktop)
+- Ships 9 of its own service logs via `udp-shipper.py` (com.jarvon.udp-shipper) + pulls .135's logs via `ssh-log-pull.py` (com.jarvon.ssh-log-pull)
 
-**M5Max (omlx.lab.internal)**
+**M5Max (192.168.5.100, omlx.lab.internal)**
 - omlx-serve (:8000) + OpenClaw bot box (:18789), misc listeners :5000/:7000/:8100
+- Ships omlx-serve stdout/stderr + gateway.log via `udp-shipper.py` (com.jarvon.udp-shipper)
 
 **.135 Mac mini M6** — vision lane (omlx-server :8000, omlx-embed-adapter :8010)
-- ⚠️ No SSH key from here yet (reverse direction only) — needs one-time key install
+- SSH key installed (mini → .135, key-based, works)
+- ⚠️ **Cannot push UDP from launchd**: macOS Local Network (TCC) restriction — launchd-spawned python gets EHOSTUNREACH on LAN sends while ssh-launched processes work. Logs are PULLED instead: `ssh-log-pull.py` runs on the mini, SSHes in, tails the 6 log files, ships UDP from the mini. See docs/RUNBOOK.md § Mac shipper operations.
 
 **FortiGate** — the perimeter. Not shipping logs anywhere yet.
 
@@ -36,13 +39,13 @@
 
 ## 2. The shortcut (found during recon)
 
-**Promtail agents already ship Docker + system logs from the whole Linux fleet to Loki on the mini.**
+**Promtail agents already ship Docker + system logs from the whole Linux fleet to Loki — now on .110 (moved off the mini 2026-10-22; the mini's Docker VM + 8GB RAM couldn't sustain the FortiGate firehose + query load).**
 17 job labels confirmed live: `litellm-linux-test, litellm-linux-db, litellm-agentic-gateway, vllm-glm53-flash, vllm-qwen36, cloudflared, admin-portal, buzz-prod-*, sovereign/langgraph/langfuse stacks, kernel, syslog`.
 
 So the log plumbing is mostly **already built**:
 - **Linux fleet** → ops-watch taps Loki's query API (new `loki-tail.mjs`, polls every cycle). Zero changes on those boxes.
 - **FortiGate** → the ONLY source with no pipeline → ships UDP syslog to ops-watch's receiver (already built).
-- **Mac services (launchd)** → our own Node apps (voice-bridge, voice-v3, lab-sentinel, watchers) get a 3-line JSON→UDP logger pointed at localhost:15140.
+- **Mac services (launchd)** → `udp-shipper.py` tails each service's log file and ships JSON envelopes to the receiver (mini + M5Max push; .135 is pulled over SSH because of its Local Network TCC restriction).
 
 ---
 
@@ -74,16 +77,18 @@ So the log plumbing is mostly **already built**:
 
 **Phase 1 — core lane (this week, ~1 day):**
 1. `loki-tail.mjs` — Loki range-query poller feeding the existing normalizer (Loki labels map to `source`/`program` natively)
-2. Deploy receiver + triage on **.110** (docker, restart-always) — 24/7 home; mini stays the Loki/Loki-tap side
+2. Deploy receiver + triage on **.110** (docker, restart-always) — 24/7 home; Loki lives on .110 too (moved 2026-10-22), tapped in-container
 3. LiteLLM + vLLM + cloudflared + container-exit rules (deterministic)
 4. Cron: triage loop every 5 min on .110
-5. You point FortiGate remote syslog at `.110:15140` (2 clicks in the FortiGate UI)
+5. ✅ FortiGate: already feeding via mini:514 → `fortigate-514-bridge`/collector.py → Loki (found 2026-10-22; no device change needed — the promtail :1514/:1515 listeners are vestigial)
 
-**Phase 2 — the Macs (~½ day):**
-6. JSON→UDP hook in the mini's jarvon services
-7. SSH key to .135 → omlx-server + embed-adapter rules (vision lane health = the daily 9am cron already checks; this makes it continuous)
-8. M5Max omlx-serve rules (already reachable)
-9. ID mystery listeners (:8090, :3001, :1515)
+**Phase 2 — the Macs (DONE 2026-10-22):**
+6. ✅ Mini shipper: `udp-shipper.py` + `com.jarvon.udp-shipper` — 9 files/7 programs (openclaw-gateway, voice-bridge, voice-v3, lab-sentinel ×2, m5max-watchdog, sonos-watchdog, homebridge ×2). Verified in events.jsonl.
+7. ✅ .135 vision lane: SSH key installed; **push blocked by macOS Local Network TCC** (launchd python → EHOSTUNREACH; ssh context works). Solution: `ssh-log-pull.py` runs on the MINI, pulls .135's 6 logs over SSH (30s cycle, byte-offset state), ships from the mini. Same rule set applies (omlx-lane-failure, omlx-error-burst).
+8. ✅ M5Max: `udp-shipper.py` on omlx-serve stdout/stderr + gateway.log. Verified in events.jsonl. Quirk: after bootout+bootstrap, launchd sometimes leaves the job not running — explicit `launchctl kickstart` fixes.
+9. ✅ Mystery listeners: :8090 = lan-dashboard UI, :1515 = fortigate-syslog-promtail, :3001 = fortigate-mcp (all Docker Desktop, mini).
+
+**Phase 2 rules added (rules.json):** omlx-lane-failure, omlx-error-burst, voice-lane-failure, openclaw-gateway-failure, watchdog-failure-burst, homebridge-failure.
 
 **Phase 3 — the intelligence layer (~½ day):**
 10. Daily ops digest (6am): everything held, plain-language
@@ -97,8 +102,8 @@ So the log plumbing is mostly **already built**:
 
 ## 5. What I need from you
 
-1. **Deploy target OK?** — .110 as the 24/7 ops-watch home (my rec; it's already the always-on Docker hub)
-2. **FortiGate syslog target** — you set it (Log & Report → Log Settings → Remote Syslog → 192.168.5.110:15140), or hand me admin creds and I do it
-3. **.135 SSH key** — one-time: run one command on the M6 (or approve via Screen Sharing) to add my pubkey
+1. **Deploy target OK?** — .110 as the 24/7 ops-watch home (my rec; it's already the always-on Docker hub) ✅
+2. ~~FortiGate syslog target~~ — RESOLVED 2026-10-22: device feeds mini:514 → collector.py → .110 Loki; ops-watch taps it through Loki
+3. **.135 SSH key** — one-time: run one command on the M6 (or approve via Screen Sharing) to add my pubkey ✅ (done 2026-10-22)
 4. **Honeytoken plants** — say the word and I'll generate the plant kit + instructions per machine
 5. Bless or veto any P1 rule above — the list is tuned to "would this make me look?"

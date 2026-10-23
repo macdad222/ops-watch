@@ -6,8 +6,13 @@ services:
     ports:
       - "15140:15140/udp"
     environment:
-      - LOKI_URL=${LOKI_URL:-http://192.168.5.56:3100}
+      # Direct container-to-container via the shared loki_default network — the
+      # host-IP hairpin path stalls on large responses (30-min fortigate chunk = 15s+ timeout).
+      - LOKI_URL=${LOKI_URL:-http://vllm-loki:3100}
       - CYCLE_SEC=${CYCLE_SEC:-300}
+      # Loki tap runs in-container against Loki on this host (~/monitoring/loki).
+      # NEVER re-enable the {job=~".+"} regex query — it hangs on this Loki build; loki-tail queries per-job.
+      - LOKI_TAIL_ENABLED=${LOKI_TAIL_ENABLED:-1}
       - OPSWATCH_BIND=0.0.0.0:15140
       - OPSWATCH_OUT=data/events.jsonl
     volumes:
@@ -18,3 +23,12 @@ services:
       - ./config/ts-lane-id.txt:/app/jev/ts-lane-id.txt:ro
       - ./config/model-pin.txt:/app/jev/model-pin.txt:ro
       - ./data/jev-decisions.log:/app/jev/decisions.log
+    networks:
+      - default
+      - loki
+
+networks:
+  default:
+  loki:
+    external: true
+    name: loki_default

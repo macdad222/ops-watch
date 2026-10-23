@@ -15,6 +15,9 @@ const bind = (process.env.OPSWATCH_BIND || '127.0.0.1:15140').split(':');
 const out = process.env.OPSWATCH_OUT || join(HERE, 'events.jsonl');
 
 const sock = createSocket('udp4');
+sock.on('error', e => console.error(`receiver socket error: ${e.message}`));
+// 4MB rcvbuf — fortigate bursts (~200 datagrams/s batched) overflow the default buffer
+try { sock.setRecvBufferSize(4 * 1024 * 1024); } catch {}
 sock.on('message', (buf, rinfo) => {
   const lines = buf.toString('utf8').split(/\r?\n/).filter(Boolean);
   for (const line of lines) {

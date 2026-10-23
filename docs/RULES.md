@@ -1,5 +1,7 @@
 # RULES — authoring guide + the security contract
 
+*The judgment layer behind this contract — what Jev is, its eight principles, the full call flow, thresholds, ledger, and calibration — is documented in [JEV.md](JEV.md).*
+
 ## The contract (Chris, 2026-10-20 — scoped authorization)
 
 The `security-triage` gate runs **BLOCKING**: Jev may move noise clusters to the digest instead of pinging. This was authorized for **this pipeline only**. The original rule — "`security-fp-filter` is advisory PERMANENTLY; never let Jev suppress a security finding" — still governs every other context, and is recorded in `skills/jev-habits/SKILL.md` ground rule #6 as a scoped exception.
@@ -15,6 +17,30 @@ What makes blocking safe here (all enforced in code, none optional):
 If Chris ever revokes the scoped authorization: flip `security-triage.mode` back to `advisory` in gates.json — triage then holds nothing via Jev (all P2 → digest flagged), deterministic layers unchanged.
 
 ## rules.json — app-specific P1 rules
+
+**Live catalog (2026-10-22 — 17 rules: 13 ops + 4 security):**
+
+| Rule | Match | Fires when |
+|---|---|---|
+| `postgres-fatal` | job db/postgres + FATAL/PANIC | ≥1 fatal DB error |
+| `litellm-error-burst` | job litellm-linux-test/agentic-gateway + errors | ≥5 errors/window |
+| `vllm-engine-down` | vllm job + engine failure patterns | ≥1 |
+| `cloudflared-tunnel-down` | cloudflared + tunnel errors | ≥2 |
+| `kernel-oom` | job kernel\|syslog + OOM strings | ≥1 |
+| `detected-error-burst` | any job, error level | ≥5/window |
+| `detected-fatal-level` | any job, fatal level | ≥1 |
+| `omlx-lane-failure` | omlx-serve + 500/model-load patterns | ≥2 |
+| `voice-lane-failure` | voice-bridge/voice-v3 + errors | ≥3 |
+| `gateway-failure` | openclaw-gateway + errors | ≥3 |
+| `watchdog-silence` | watchdog job + silence/failure | ≥1 |
+| `sonos-watchdog` | sonos job + errors | ≥2 |
+| `homebridge-failure` | homebridge + ERROR/FATAL/EADDRINUSE | ≥2 |
+| **`fortigate-admin-auth-fail`** | job fortigate + "Admin login failed"/ssl-login-fail/admin_lockout | **≥3/window (brute-force signature — would have caught Oct 21)** |
+| **`fortigate-botnet-c2`** | job fortigate + Botnet C&C patterns | ≥10/window (needs FortiGate UTM logging enabled — unverified) |
+| **`ssh-bruteforce`** | job syslog + Failed password/Invalid user/auth failure | ≥10/window |
+| **`honeytoken-trigger`** | any job + HONEYTOKEN string | ≥1 — P0-adjacent, armed, plants pending Phase 3 |
+
+Semantics below; full rule bodies live in `rules.json` (repo + `ops-watch:/app/rules.json` — triage re-reads it **every 300s cycle**, so `docker cp` a new rules.json for live reload, no restart).
 
 ```json
 {

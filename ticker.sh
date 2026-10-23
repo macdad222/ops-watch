@@ -4,8 +4,10 @@ cd /app
 OPSWATCH_OUT=data/events.jsonl OPSWATCH_BIND=0.0.0.0:15140 node receiver.mjs >> logs/receiver.log 2>&1 &
 echo "$(date -u +%FT%TZ) ops-watch ticker started (receiver bg, cycle ${CYCLE_SEC:-300}s, loki $LOKI_URL)" >> logs/ticker.log
 while true; do
-  node loki-tail.mjs data/events.jsonl --state data/loki-state.json --url "$LOKI_URL" >> logs/loki-tail.log 2>&1 \
-    || echo "$(date -u +%FT%TZ) loki-tail FAILED" >> logs/ticker.log
+  if [ "${LOKI_TAIL_ENABLED:-1}" = "1" ]; then
+    node loki-tail.mjs data/events.jsonl --state data/loki-state.json --url "$LOKI_URL" >> logs/loki-tail.log 2>&1 \
+      || echo "$(date -u +%FT%TZ) loki-tail FAILED" >> logs/ticker.log
+  fi
   node triage.mjs data/events.jsonl --live --state-file data/triage-state.json --window-min 5 >> logs/triage.log 2>&1 \
     || echo "$(date -u +%FT%TZ) triage FAILED" >> logs/ticker.log
   # compact when >50MB AND fully consumed by triage (offset == size); receiver re-creates file on next append
