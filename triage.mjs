@@ -25,6 +25,11 @@ import { dirname, join } from 'node:path';
 import { normalizeLine, clusterEvents, deterministicVerdict, appRulesVerdict, buildLokiEvent, scrub, loadOpsConfig, isQuietHoursCT } from './lib.mjs';
 import { sendTelegram, pingMessage } from './notify.mjs';
 import { assess, esc } from './assess.mjs';   // analyst enrichment (PLAN-qwen-assess 2026-10-23)
+import { recordCycle } from './history.mjs';
+import { triageV2 } from './triage-v2.mjs';
+import { readFileSync as _rf } from 'node:fs';
+let EXAMPLES = null;
+try { EXAMPLES = JSON.parse(_rf(join(HERE, 'examples.json'), 'utf8')); } catch { EXAMPLES = null; }
 let _jev;
 try { _jev = await import('../jev/jev-gate.mjs'); }        // repo layout (mini)
 catch { _jev = await import('./jev/jev-gate.mjs'); }        // container layout (/app)
@@ -251,20 +256,71 @@ async function main() {
   const held = [];
   for (const x of p3) held.push({ ...x, benignProb: null, heldBy: 'deterministic-hum' });
   logDecision({ gate: GATE, action: 'hold-hum', pass: true, count: p3.length });
-  const v1 = await jevScoreV1(p2, { cfg, windowMin });
-  held.push(...v1.held);
+  const mode = cfg.triage_mode || 'v1';
+  let v1 = { held: [], pingFromJev: [], jevDown: [], unscored: [] };
+  let v2res = null;
+  if (mode === 'v2') {
+    // v2 decides; v1 not called (plan §3.10)
+    v2res = await triageV2(p2, { cfg, window, cycleId, mode, windowMin, examples: EXAMPLES });
+  } else {
+    v1 = await jevScoreV1(p2, { cfg, windowMin });
+    if (mode === 'shadow' && p2.length) {
+      // SHADOW: v1 decided above; v2 runs on the SAME P2 set, ledger-only (plan §3.10)
+      const v1Map = new Map();
+      for (const h of v1.held) v1Map.set(h.cluster.sig, { decision: h.heldBy === 'batch-overflow' ? 'unscored' : 'hold', benignProb: h.benignProb });
+      for (const p of v1.pingFromJev) v1Map.set(p.cluster.sig, { decision: 'ping', benignProb: p.benignProb });
+      for (const j of v1.jevDown) v1Map.set(j.cluster.sig, { decision: 'digest', benignProb: null });
+      v2res = await triageV2(p2, { cfg, window, cycleId, mode, v1Map, windowMin, examples: EXAMPLES });
+    }
+  }
+  const pingItems = mode === 'v2'
+    ? [...p2].filter(x => v2res?.decisions.get(x.cluster.sig)?.decision === 'ping')
+        .map(x => ({ ...x, verdict: { level: 'P2', why: `v2: ${v2res.decisions.get(x.cluster.sig).reason}` } }))
+    : v1.pingFromJev;
+  const digestItems = mode === 'v2'
+    ? [...p2].filter(x => ['digest', 'unscored'].includes(v2res?.decisions.get(x.cluster.sig)?.decision))
+    : v1.jevDown;
+  const v2HoldItems = mode === 'v2'
+    ? [...p2].filter(x => v2res?.decisions.get(x.cluster.sig)?.decision === 'hold')
+    : [];
+  held.push(...v1.held, ...v2HoldItems.map(x => ({ ...x, benignProb: null, heldBy: 'v2-jev-routine' })));
 
   // ── Ledger for held items ─────────────────────────────────────────────────
   for (const h of held) logDecision({ gate: GATE, action: 'hold-noise', pass: true, sig: h.cluster.sig,
     count: h.cluster.count, benignProb: h.benignProb, source: h.cluster.source, heldBy: h.heldBy || 'jev-benign' });
 
   // ── Deliver (mutes → repeat → cap → send → mark on ok) ────────────────────
-  const pingsRaw = [...p0, ...p1, ...v1.pingFromJev];
+  const pingsRaw = [...p0, ...p1, ...pingItems];
   const d = await deliver(pingsRaw, { cfg, pingState, live: live && !digestOnly, cycleId });
 
-  // Jev-down items → digest queue (visible at 08:00, never silent)
-  if (v1.jevDown.length) appendDigestQueue(v1.jevDown, 'jev-down', cycleId);
+  // digest queue: v1 jevDown / v2 digest+unscored items (visible at 08:00, never silent)
+  if (digestItems.length) appendDigestQueue(digestItems, mode === 'v2' ? 'v2-digest' : 'jev-down', cycleId);
   if (v1.unscored.length) { appendUnscored(v1.unscored); logDecision({ gate: GATE, action: 'unscored', pass: true, count: v1.unscored.length }); }
+  if (mode === 'v2' && v2res?.overCap) {
+    appendUnscored([...p2].filter(x => v2res.decisions.get(x.cluster.sig)?.decision === 'unscored')
+      .map(x => ({ ts: new Date().toISOString(), reason: 'v2-cap', sig: x.cluster.sig,
+        source: x.cluster.source, program: x.cluster.program || '', count: x.cluster.count })));
+  }
+  // v2 all-chunks-failed summary: ping OUTSIDE quiet hours, else digest-queue (quiet-hours rule)
+  if (mode === 'v2' && v2res?.allFailed && p2.length) {
+    const msg = `⚠️ ops-watch v2: Jev down — ${p2.length} P2 clusters unreviewed this cycle. Top: ${v2res.top5.join(', ')}`;
+    if (!isQuietHoursCT(cfg)) {
+      try { await sendTelegram(msg); logDecision({ gate: GATE, action: 'v2-down-summary', pass: true, delivered: true }); }
+      catch (e) { appendDigestQueue([{ cluster: { sig: 'v2-jev-down', source: 'ops-watch', program: 'summary', count: p2.length, samples: [msg] } }], 'v2-down-summary-failed', cycleId); }
+    } else {
+      appendDigestQueue([{ cluster: { sig: 'v2-jev-down', source: 'ops-watch', program: 'summary', count: p2.length, samples: [msg] } }], 'v2-down-quiet-hours', cycleId);
+      logDecision({ gate: GATE, action: 'v2-down-summary', pass: true, delivered: false, note: 'quiet hours → digest' });
+    }
+  }
+
+  // history: record per-sig outcomes for v2 features (actual decisions of the acting mode)
+  try {
+    const heldSigs = new Set([...v1.held.map(h => h.cluster.sig), ...v2HoldItems.map(x => x.cluster.sig)]);
+    const pingedSigs = new Set(d.sent.map(x => x.cluster.sig));
+    const verdicts = new Map();
+    if (v2res) for (const [sig, dec] of v2res.decisions) verdicts.set(sig, dec.decision);
+    recordCycle(clusters, { heldSigs, pingedSigs, verdicts });
+  } catch { /* history must never break a cycle */ }
 
   // ── held.jsonl audit (incl. muted) ────────────────────────────────────────
   const heldAll = [...held, ...d.muted];
@@ -278,14 +334,15 @@ async function main() {
 
   const result = {
     cycle_id: cycleId, mode: cfg.triage_mode, window,
-    counts: { clusters: clusters.length, p0: p0.length, p1: p1.length, jevPing: v1.pingFromJev.length,
-      held: heldAll.length + d.repeatHeld.length, jevDown: v1.jevDown.length, repeatsHeld: d.repeatHeld.length,
-      muted: d.muted.length, overCap: d.overCap.length, unscored: v1.unscored.length, sent: d.sent.length },
+    counts: { clusters: clusters.length, p0: p0.length, p1: p1.length, jevPing: pingItems.length,
+      held: heldAll.length + d.repeatHeld.length, jevDown: digestItems.length, repeatsHeld: d.repeatHeld.length,
+      muted: d.muted.length, overCap: d.overCap.length, unscored: v1.unscored.length, sent: d.sent.length,
+      v2_shadow_rows: v2res?.shadowRows ?? 0, v2_prestep: v2res?.prestepHeld ?? 0 },
     pings: d.sent.map(x => ({ level: x.verdict.level, why: x.verdict.why, source: x.cluster.source, program: x.cluster.program,
       count: x.cluster.count, host: x.cluster.host, sample: (x.cluster.samples[0] || '').slice(0, 160) })),
     held: [...d.repeatHeld.map(x => ({ sig: x.cluster.sig, benignProb: null, heldBy: 'repeat-suppressed', source: x.cluster.source, program: x.cluster.program, count: x.cluster.count, sample: (x.cluster.samples[0] || '').slice(0, 100) })), ...heldAll.map(x => ({ sig: x.cluster.sig, benignProb: x.benignProb, heldBy: x.heldBy || 'jev-benign', source: x.cluster.source, program: x.cluster.program,
       count: x.cluster.count, sample: (x.cluster.samples[0] || '').slice(0, 100) }))],
-    jevDown: v1.jevDown.map(x => ({ sig: x.cluster.sig, source: x.cluster.source, count: x.cluster.count })),
+    jevDown: digestItems.map(x => ({ sig: x.cluster.sig, source: x.cluster.source, count: x.cluster.count })),
   };
   console.log(JSON.stringify(result, null, 2));
 

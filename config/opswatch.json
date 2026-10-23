@@ -1,5 +1,5 @@
 {
-  "triage_mode": "v1",
+  "triage_mode": "shadow",
   "v1_cap": 150,
   "v2": {
     "chunk_size": 30,
