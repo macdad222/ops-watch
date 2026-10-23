@@ -17,14 +17,16 @@ export function getToken() {
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export async function sendTelegram(html, { silent = false } = {}) {
+export async function sendTelegram(html, { silent = false, replyMarkup = null } = {}) {
   const url = `https://api.telegram.org/bot${getToken()}/sendMessage`;
   // Telegram hard limit 4096 chars — truncate with a marker instead of 400-failing
   if (html.length > 3900) html = html.slice(0, 3850) + '\n\n⚠️ …truncated (full detail in ops-watch held.jsonl)';
+  const body = { chat_id: CHAT_ID, text: html, parse_mode: 'HTML', disable_notification: silent };
+  if (replyMarkup) body.reply_markup = replyMarkup;   // inline keyboard (Bot API; no deps)
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: CHAT_ID, text: html, parse_mode: 'HTML', disable_notification: silent }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(30000),
   });
   const r = await res.json();
@@ -53,7 +55,7 @@ function plainAction(verdict) {
   return 'No emergency — I am tracking it and will only re-ping if it persists or gets worse.';
 }
 
-export function pingMessage(cluster, verdict, { test = false } = {}) {
+export function pingMessage(cluster, verdict, { test = false, tag = null, pingId = null } = {}) {
   const icon = verdict.level === 'P0' ? '🚨' : '⚠️';
   const head = test ? 'SYNTHETIC-TEST' : '';
   const lines = [
@@ -65,5 +67,19 @@ export function pingMessage(cluster, verdict, { test = false } = {}) {
     `Sample: <code>${esc((cluster.samples[0] || '').slice(0, 220))}</code>`,
     `Window: ${esc(cluster.first_seen)} → ${esc(cluster.last_seen)}`,
   ];
+  if (tag) lines.push(`Item: <code>#${esc(tag)}</code>`);
+  if (pingId) lines.push(`<i>Feedback: 👍 useful · 👎 noise · 🔕 mute 7d (buttons above) — or reply "ow noise ${esc(pingId)}"</i>`);
   return lines.join('\n');
+}
+
+// v2 feedback buttons (§4.2): message-level — a click applies to every item in the message.
+// callback_data ≤64 bytes: ow:<label>:<ping_id>. OpenClaw surfaces clicks as callback_data text.
+export function feedbackKeyboard(pingId, { withMissed = false } = {}) {
+  const row = [
+    { text: '👍 useful', callback_data: `ow:useful:${pingId}` },
+    { text: '👎 noise', callback_data: `ow:noise:${pingId}` },
+    { text: '🔕 mute 7d', callback_data: `ow:mute:${pingId}` },
+  ];
+  if (withMissed) row.push({ text: '➕ should have pinged', callback_data: `ow:missed:${pingId}` });
+  return { inline_keyboard: [row] };
 }

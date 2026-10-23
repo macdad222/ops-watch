@@ -23,7 +23,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, open
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { normalizeLine, clusterEvents, deterministicVerdict, appRulesVerdict, buildLokiEvent, scrub, loadOpsConfig, isQuietHoursCT } from './lib.mjs';
-import { sendTelegram, pingMessage } from './notify.mjs';
+import { sendTelegram, pingMessage, feedbackKeyboard } from './notify.mjs';
 import { assess, esc } from './assess.mjs';   // analyst enrichment (PLAN-qwen-assess 2026-10-23)
 import { recordCycle } from './history.mjs';
 import { triageV2 } from './triage-v2.mjs';
@@ -174,24 +174,27 @@ export async function deliver(pingsRaw, { cfg, pingState, live = true, send = se
   const out = { candidates, sent: [], muted, repeatHeld, overCap, sendFailed: [], messageId: null, pingId: null };
   if (!live) return out;   // digest-only / dry run: classify only, no send, no marking
   if (!capped.length && !overCap.length) return out;
-  let body = capped.map(x => pingMessage(x.cluster, x.verdict, { test: process.env.OPSWATCH_TEST === '1' })).join('\n\n———\n\n');
+  out.pingId = Math.random().toString(36).slice(2, 6);
+  const decidingMode = cfg.triage_mode === 'v2' ? 'v2' : 'v1';
+  const items = capped.map((x, i) => ({ ...x, item_id: `${out.pingId}.${i + 1}` }));
+  let body = items.map(x => pingMessage(x.cluster, x.verdict, { test: process.env.OPSWATCH_TEST === '1', tag: x.item_id })).join('\n\n———\n\n');
   if (overCap.length) {
     const top = overCap.slice(0, 5).map(x => `${x.cluster.source}/${x.cluster.program || '?'} ×${x.cluster.count}`).join(', ');
     body += `\n\n➕ +${overCap.length} more P2 clusters (top: ${top}) — in digest`;
   }
+  body += `\n\n<i>Feedback: 👍 useful · 👎 noise · 🔕 mute 7d — or reply "ow noise ${out.pingId}"</i>`;
   try {
-    const r = await send(body);
+    const r = await send(body, { replyMarkup: feedbackKeyboard(out.pingId) });
     out.messageId = r?.result?.message_id ?? null;
-    out.pingId = Math.random().toString(36).slice(2, 6);
     // mark-sent + ledger ONLY after Telegram ok — a failed send must never mute a sig for 4h
     for (const x of capped) pingState.lastP1[x.cluster.sig] = now;
     appendPingsRow({
-      ts: new Date().toISOString(), ping_id: out.pingId, message_id: out.messageId, kind: 'ping',
-      items: capped.map((x, i) => ({ item_id: `${out.pingId}.${i + 1}`, sig: x.cluster.sig,
+      ts: new Date().toISOString(), ping_id: out.pingId, message_id: out.messageId, kind: 'ping', mode: decidingMode,
+      items: items.map((x, i) => ({ item_id: `${out.pingId}.${i + 1}`, sig: x.cluster.sig,
         source: x.cluster.source, program: x.cluster.program || '', level: x.verdict.level,
-        decision: x.verdict.why, mode: 'v1', probs: null, confidence: null })),
+        decision: x.verdict.why, mode: decidingMode, probs: null, confidence: null })),
     });
-    out.sent = capped.map((x, i) => ({ ...x, item_id: `${out.pingId}.${i + 1}`, ping_id: out.pingId }));
+    out.sent = items;
     if (overCap.length) appendDigestQueue(overCap, 'over-cap', cycleId);   // visible in digest, NOT marked pinged
   } catch (e) {
     out.sendFailed = [...capped, ...overCap];
