@@ -82,6 +82,7 @@ Rule semantics and authoring: [RULES.md](RULES.md). Rules are re-read from `/app
 5. **P2 — everything else → Jev `security-triage`** (blocking, threshold 0.60): per cluster, ONE typed call (noul: "is this routine recurring background noise? Not novel, not a config/policy change, not a spike, not security-relevant") over scrubbed, truncated samples. Score ≥ 0.60 → held to digest; < 0.60 or unparsed → ping; Jev down → **fail-open** (nothing suppressed, everything surfaces flagged `jevDown`). The question is worded so the safe failure is a ping. Full principles, call shape, ledger, and calibration: [JEV.md](JEV.md).
 6. **Repeat suppression:** same P1 sig within 4h → held with "still active" note. P0 always re-pings.
 7. **Batch cap:** ≤300 P2 clusters per Jev call (~$0.006 worst case); overflow → held, never pinged.
+8. **Clustering scope (2026-10-23 flood hotfix):** the v1/shadow DECISION path clusters only the last `--window-min` window (`v1_cluster_mode: "window"`, default; `"batch"` opts back into whole-batch clustering). v2 mode clusters the whole unread batch — the backlog-drop fix (no silent event loss) is **v2-only until the v1→v2 flip**. In shadow, v2 still scores the full batch, ledger-only.
 
 ## State files (all under `data/` on .110, in the ops-watch container volume)
 

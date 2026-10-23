@@ -154,6 +154,7 @@ export function clusterEvents(events, windowMin = 5, { mode = 'window' } = {}) {
 const LIB_HERE = dirname(fileURLToPath(import.meta.url));
 const OPS_CFG_DEFAULTS = {
   triage_mode: 'v1',
+  v1_cluster_mode: 'window',   // 2026-10-23 flood hotfix: decision-path clustering for v1/shadow — 'window' (pre-deploy behavior) | 'batch' (interim whole-batch). v2 mode always batches.
   v1_cap: 150,
   v2: { chunk_size: 12,   // measured 2026-10-23: ~12-13 Choice answers fit Jev's output limit (~700 tok); 30 → max_tokens_exceeded
     concurrency: 3, timeout_ms: 20000, retries: 1, backoff_ms: 2000,

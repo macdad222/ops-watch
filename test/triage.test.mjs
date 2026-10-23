@@ -55,6 +55,45 @@ test('clusterEvents batch mode: events spanning 40 min all clustered', () => {
   assert.ok(w.clusters.length < events.length);
 });
 
+test('cluster-mode knob: v1/shadow decision path = window (default), batch opt-in, v2 always batch', () => {
+  assert.equal(triage.decisionClusterMode({ triage_mode: 'v1' }), 'window');
+  assert.equal(triage.decisionClusterMode({ triage_mode: 'shadow' }), 'window');
+  assert.equal(triage.decisionClusterMode({ triage_mode: 'shadow', v1_cluster_mode: 'batch' }), 'batch');
+  assert.equal(triage.decisionClusterMode({ triage_mode: 'v1', v1_cluster_mode: 'batch' }), 'batch');
+  assert.equal(triage.decisionClusterMode({ triage_mode: 'v2' }), 'batch');
+  assert.equal(triage.decisionClusterMode({ triage_mode: 'v2', v1_cluster_mode: 'window' }), 'batch');
+  assert.equal(triage.decisionClusterMode({}), 'window');   // no cfg → v1 default, window
+});
+
+test('shadow dual sets: v1 decides on window, v2 shadow gets full batch; knob batch reuses one set', () => {
+  const t0 = Date.parse('2026-10-23T12:00:00Z');
+  const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+  const events = [];
+  for (let m = 0; m <= 40; m += 10) {
+    events.push({ source: 'syslog', host: 'h', program: 'app', ts: new Date(t0 + m * 60000).toISOString(),
+      message: `event ${words[m / 10]} marker`, fields: {}, received_at: new Date(t0 + m * 60000).toISOString(), raw: 'x' });
+  }
+  for (const e of events) e.sig = lib.signature(e);   // raw fixtures bypass normalizeLine → set sig explicitly
+  // shadow + default knob → window decision set, full-batch shadow set
+  const s = triage.cycleClusterSets(events, { cfg: { triage_mode: 'shadow' }, windowMin: 5 });
+  assert.equal(s.decMode, 'window');
+  assert.ok(s.dec.clusters.length < s.shadow.clusters.length, 'decision set smaller than batch shadow set');
+  assert.equal(s.shadow.clusters.length, events.length, 'shadow set covers whole batch');
+  // v1 mode → no shadow set
+  const v1s = triage.cycleClusterSets(events, { cfg: { triage_mode: 'v1' }, windowMin: 5 });
+  assert.equal(v1s.decMode, 'window');
+  assert.equal(v1s.shadow, null);
+  // knob batch → decision set IS the batch, no separate shadow set
+  const bs = triage.cycleClusterSets(events, { cfg: { triage_mode: 'shadow', v1_cluster_mode: 'batch' }, windowMin: 5 });
+  assert.equal(bs.decMode, 'batch');
+  assert.equal(bs.shadow, null);
+  assert.equal(bs.dec.clusters.length, events.length);
+  // v2 → batch decision set, no shadow set
+  const v2s = triage.cycleClusterSets(events, { cfg: { triage_mode: 'v2' }, windowMin: 5 });
+  assert.equal(v2s.decMode, 'batch');
+  assert.equal(v2s.shadow, null);
+});
+
 test('send-path failure: lastP1 unchanged, no pings.jsonl row, items queued to digest', async () => {
   const pingState = { lastP1: {} };
   const pings = [mkCluster(1), mkCluster(2)];

@@ -15,6 +15,9 @@
 //   - overflow = p2.slice(v1_cap) — clusters 20..149 are no longer scored AND held; 150+ are
 //     unscored WITH a reason (data/unscored.jsonl) instead of silently double-handled.
 //   - clusterEvents batch mode: the WHOLE unread batch is clustered (backlog no longer dropped).
+//   - 2026-10-23 FLOOD HOTFIX: batch clustering is v2-only for DECISIONS — the v1/shadow
+//     decision path reverts to window clustering (knob v1_cluster_mode, default "window");
+//     v2 shadow still scores the full batch, ledger-only.
 //   - send path: mutes + 4h repeat filter → P0-first cap → send → lastP1/pings.jsonl marked
 //     ONLY after Telegram ok → over-cap / send-failed items go to the digest queue, never lost.
 // Exported pieces (parseEvents/classify/jevScoreV1/deliver) are unit-testable; main() runs
@@ -96,6 +99,34 @@ export function classify(events, { windowMin = 5, mode = 'batch' } = {}) {
     else p2.push({ cluster: c, verdict: v });
   }
   return { window, clusters, p0, p1, p2, p3 };
+}
+
+// ── clustering-mode selection (2026-10-23 flood hotfix) ──────────────────────
+// The v2 batch-clustering change (1c495db) also switched the v1/shadow DECISION path to
+// whole-batch clustering: 1.5–2k P2 clusters/cycle → v1's single batch-level noul call
+// judged ~150/150 novel → deliver's cap turned it into 10 pings + "+~130 over cap" +
+// an assessment EVERY 5-min cycle (jevPing 133–150/cycle vs 0 pre-deploy). Fix: in
+// v1/shadow modes the decision path reverts to window clustering (pre-deploy behavior);
+// knob v1_cluster_mode:'batch' restores the interim behavior. v2 mode keeps batch
+// clustering (the backlog-drop fix is v2-only until the v1→v2 flip), and v2 SHADOW still
+// scores the full batch (ledger-only, no sends).
+export function decisionClusterMode(cfg) {
+  const mode = cfg?.triage_mode || 'v1';
+  if (mode === 'v2') return 'batch';
+  return cfg?.v1_cluster_mode === 'batch' ? 'batch' : 'window';
+}
+// Decision set + (shadow-only) full-batch set for one cycle. `shadow` is non-null only
+// when the decision path clustered a window but v2 shadow needs the whole batch.
+export function cycleClusterSets(events, { cfg, windowMin = 5 } = {}) {
+  const mode = cfg?.triage_mode || 'v1';
+  const decMode = decisionClusterMode(cfg);
+  const dec = classify(events, { windowMin, mode: decMode });
+  let shadow = null;
+  if (mode === 'shadow' && decMode !== 'batch') {
+    const b = classify(events, { windowMin, mode: 'batch' });
+    shadow = { p2: b.p2, window: b.window, clusters: b.clusters };
+  }
+  return { mode, decMode, dec, shadow };
 }
 
 // ── v1 Jev scoring on P2 (batch noul, bug-fixed) ─────────────────────────────
@@ -250,7 +281,8 @@ async function main() {
   }
   const newOffset = offset + consumed;
   const events = parseEvents(rawLines);
-  const { window, clusters, p0, p1, p2, p3 } = classify(events, { windowMin, mode: 'batch' });
+  const sets = cycleClusterSets(events, { cfg, windowMin });
+  const { window, clusters, p0, p1, p2, p3 } = sets.dec;
 
   logDecision({ gate: GATE, action: 'deterministic-layer', pass: true,
     p0: p0.length, p1: p1.length, p2: p2.length, p3: p3.length, window });
@@ -259,7 +291,7 @@ async function main() {
   const held = [];
   for (const x of p3) held.push({ ...x, benignProb: null, heldBy: 'deterministic-hum' });
   logDecision({ gate: GATE, action: 'hold-hum', pass: true, count: p3.length });
-  const mode = cfg.triage_mode || 'v1';
+  const mode = sets.mode;
   let v1 = { held: [], pingFromJev: [], jevDown: [], unscored: [] };
   let v2res = null;
   if (mode === 'v2') {
@@ -269,13 +301,18 @@ async function main() {
   } else {
     v1 = await jevScoreV1(p2, { cfg, windowMin });
     if (mode === 'shadow' && p2.length) {
-      // SHADOW: v1 decided above; v2 runs on the SAME P2 set, ledger-only (plan §3.10).
-      // Shadow failure must NEVER break the cycle — v1 already decided and deliver still runs.
+      // SHADOW: v1 decided above on the decision set; v2 still scores the FULL unread
+      // batch, ledger-only, no sends (plan §3.10 + 2026-10-23 flood hotfix). When the
+      // decision path already clustered the whole batch (v1_cluster_mode:'batch'), the
+      // decision set IS the batch and we reuse it. Shadow failure must NEVER break the
+      // cycle — v1 already decided and deliver still runs.
+      const shP2 = sets.shadow ? sets.shadow.p2 : p2;
+      const shWindow = sets.shadow ? sets.shadow.window : window;
       const v1Map = new Map();
       for (const h of v1.held) v1Map.set(h.cluster.sig, { decision: h.heldBy === 'batch-overflow' ? 'unscored' : 'hold', benignProb: h.benignProb });
       for (const p of v1.pingFromJev) v1Map.set(p.cluster.sig, { decision: 'ping', benignProb: p.benignProb });
       for (const j of v1.jevDown) v1Map.set(j.cluster.sig, { decision: 'digest', benignProb: null });
-      try { v2res = await triageV2(p2, { cfg, window, cycleId, mode, v1Map, windowMin, examples: EXAMPLES }); }
+      try { v2res = await triageV2(shP2, { cfg, window: shWindow, cycleId, mode, v1Map, windowMin, examples: EXAMPLES }); }
       catch (e) { console.error(`v2 shadow FAILED (${e.message}) — v1 unaffected`); logDecision({ gate: GATE, action: 'v2-shadow-error', pass: false, error: String(e.message).slice(0, 120) }); }
     }
   }
