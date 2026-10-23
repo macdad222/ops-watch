@@ -1,0 +1,29 @@
+{
+  "triage_mode": "v1",
+  "v1_cap": 150,
+  "v2": {
+    "chunk_size": 30,
+    "concurrency": 3,
+    "timeout_ms": 20000,
+    "retries": 1,
+    "backoff_ms": 2000,
+    "max_clusters_per_cycle": 300,
+    "model": "jev-1.13.0",
+    "bands": {
+      "security_ping_p": 0.40,
+      "security_min_conf": 0.30,
+      "fault_ping_p": 0.60,
+      "fault_min_conf": 0.50,
+      "routine_hold_p": 0.75,
+      "routine_min_conf": 0.60,
+      "expected_change_p": 0.60
+    },
+    "thresholds_by_source": {},
+    "prestep": { "enabled": true, "min_held_7d": 3, "max_rate_vs_baseline": 3 }
+  },
+  "pings": { "max_per_cycle": 10, "repeat_hours": 4 },
+  "quiet_hours_ct": { "start": "00:00", "end": "06:00" },
+  "digest": { "enabled": true, "send_at_ct": "08:00", "max_items": 15 },
+  "feedback": { "method": "reply", "mute_days": 7 },
+  "ml": { "min_labels": 300, "shadow": true }
+}

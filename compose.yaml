@@ -1,6 +1,9 @@
 services:
   ops-watch:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     container_name: ops-watch
     restart: always
     ports:
@@ -19,9 +22,12 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./secrets/tg.cred:/app/secrets/tg.cred:ro
+      - ./secrets/lab.key:/app/secrets/lab.key:ro
       - ./config/gates.json:/app/jev/gates.json:ro
       - ./config/ts-lane-id.txt:/app/jev/ts-lane-id.txt:ro
       - ./config/model-pin.txt:/app/jev/model-pin.txt:ro
+      # v2 config (triage_mode etc.) — host file is the runtime authority, git is source of truth
+      - ./config/opswatch.json:/app/config/opswatch.json:ro
       - ./data/jev-decisions.log:/app/jev/decisions.log
     networks:
       - default

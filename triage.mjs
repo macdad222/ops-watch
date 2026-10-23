@@ -10,7 +10,7 @@
 //     blocking mode: benign >= threshold → HELD (digest only; ledgered, never deleted).
 //     Jev down/unsure → fail-open: goes to digest AND flagged unparsed — never silently lost.
 // All decisions append to the Jev ledger (gate: security-triage).
-import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, openSync, readSync, closeSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { normalizeLine, clusterEvents, deterministicVerdict, appRulesVerdict, buildLokiEvent, scrub } from './lib.mjs';
@@ -22,6 +22,7 @@ catch { _jev = await import('./jev/jev-gate.mjs'); }        // container layout 
 const { jev, gateConfig, logDecision } = _jev;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = join(HERE, 'data');
 const HONEY = JSON.parse(readFileSync(join(HERE, 'honeytokens.json'), 'utf8'));
 let RULES = [];
 try { RULES = JSON.parse(readFileSync(join(HERE, 'rules.json'), 'utf8')).rules || []; } catch { /* no rules file → generic layer only */ }
@@ -164,7 +165,10 @@ const result = {
     count: x.cluster.count, sample: (x.cluster.samples[0] || '').slice(0, 100) }))],
   jevDown: jevDown.map(x => ({ sig: x.cluster.sig, source: x.cluster.source, count: x.cluster.count })),
 };
-appendFileSync(join(HERE, 'held.jsonl'), held.map(h => JSON.stringify({ ts: new Date().toISOString(), sig: h.cluster.sig,
+// v2 (2026-10-23 deploy-drift fix): held.jsonl lives on the mounted data/ volume —
+// /app/held.jsonl was in the container writable layer and a recreate wiped the audit trail.
+try { mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
+appendFileSync(join(DATA_DIR, 'held.jsonl'), held.map(h => JSON.stringify({ ts: new Date().toISOString(), sig: h.cluster.sig,
   source: h.cluster.source, program: h.cluster.program, count: h.cluster.count,
   benignProb: h.benignProb, heldBy: h.heldBy || 'jev-benign', why: h.verdict?.why })).join('\n') + (held.length ? '\n' : ''));
 
