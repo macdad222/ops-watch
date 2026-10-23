@@ -36,19 +36,26 @@ for (const r of shadow) if (!shadowBySig.has(r.sig)) shadowBySig.set(r.sig, r); 
 for (const r of shadow) shadowBySig.set(r.sig, r);
 
 // item-level join: label × ping item × shadow verdict
+// v3: labels carry an origin — human rows source:"chris" (weight 1), auto rows source:"auto"
+// (weight 0.3, auto_reason). Pre-v3 rows have source = event source → treated as human.
+// All gate/precision numbers count HUMAN labels only; auto rows are reported separately.
 const pingById = new Map();
 for (const p of pings) for (const it of p.items || []) pingById.set(it.item_id, { ping: p, item: it });
 
+const originOf = r => (r.source === 'chris' || r.source === 'auto') ? r.source : 'chris';
+const eventSourceOf = r => r.event_source ?? ((r.source === 'chris' || r.source === 'auto') ? '' : r.source);
 const rows = [];
 for (const l of labels) {
   const j = pingById.get(l.item_id);
   const sh = shadowBySig.get(l.sig);
-  rows.push({ ...l, pinged: !!j, level: j?.item?.level || null, argmax: sh ? Object.entries(sh.probs).sort((a, b) => b[1] - a[1])[0][0] : null, conf: sh?.confidence ?? null });
+  rows.push({ ...l, origin: originOf(l), event_source: eventSourceOf(l), pinged: !!j, level: j?.item?.level || null, argmax: sh ? Object.entries(sh.probs).sort((a, b) => b[1] - a[1])[0][0] : null, conf: sh?.confidence ?? null });
 }
-const total = rows.length;
+const autoRows = rows.filter(r => r.origin === 'auto');
+const humanRows = rows.filter(r => r.origin === 'chris');
+const total = humanRows.length;
 const byLabel = {};
-for (const r of rows) byLabel[r.label] = (byLabel[r.label] || 0) + 1;
-const pingedRows = rows.filter(r => r.pinged);
+for (const r of humanRows) byLabel[r.label] = (byLabel[r.label] || 0) + 1;
+const pingedRows = humanRows.filter(r => r.pinged);
 const useful = pingedRows.filter(r => r.label === 'useful').length;
 const noise = pingedRows.filter(r => r.label === 'noise').length;
 const missed = rows.filter(r => r.label === 'missed').length;
@@ -60,9 +67,9 @@ function groupBy(arr, key) {
   for (const r of arr) { const k = key(r) || '?'; if (!m.has(k)) m.set(k, { useful: 0, noise: 0, mute: 0, missed: 0, total: 0 }); m.get(k).total++; m.get(k)[r.label] = (m.get(k)[r.label] || 0) + 1; }
   return m;
 }
-const perSource = groupBy(pingedRows, r => r.source);
+const perSource = groupBy(pingedRows, r => r.event_source);
 const perArgmax = groupBy(pingedRows, r => r.argmax);
-const missedBySource = groupBy(rows.filter(r => r.label === 'missed'), r => r.source);
+const missedBySource = groupBy(humanRows.filter(r => r.label === 'missed'), r => r.event_source);
 
 // threshold suggestions (report-only)
 const suggestions = [];
@@ -77,7 +84,7 @@ if (!suggestions.length) suggestions.push('• none yet (need more labels)');
 const date = new Date().toISOString().slice(0, 10);
 const md = `# ops-watch label report — ${date} (last ${days}d)
 
-**Totals:** ${total} labels — useful ${byLabel.useful || 0} · noise ${byLabel.noise || 0} · mute ${byLabel.mute || 0} · missed ${byLabel.missed || 0}
+**Totals:** ${total} HUMAN labels — useful ${byLabel.useful || 0} · noise ${byLabel.noise || 0} · mute ${byLabel.mute || 0} · missed ${byLabel.missed || 0} (+${autoRows.length} auto-labeled, weight 0.3, excluded from the gate)
 **Precision (useful / pinged-labeled):** ${precision === null ? 'n/a' : (precision * 100).toFixed(0) + '%'} (useful ${useful} vs noise ${noise})
 **Recall proxy (pinged-useful / (useful+missed)):** ${recallProxy === null ? 'n/a' : (recallProxy * 100).toFixed(0) + '%'} (missed ${missed})
 
@@ -95,9 +102,10 @@ ${[...perArgmax].map(([s, v]) => `| ${s} | ${v.useful} | ${v.noise} | ${v.mute} 
 ${suggestions.join('\n')}
 
 ## Notes
-- Labels come from buttons / replies / reactions via label.mjs (docs/FEEDBACK.md).
+- Labels come from per-card buttons / replies / reactions via label.mjs (docs/FEEDBACK.md).
+- HUMAN labels only (source:"chris", weight 1). Auto-labels (source:"auto", weight 0.3 — ignored_no_action / qwen_prelabel / jev_prelabel) are shown in the total line but NEVER counted toward precision/recall or the ml gate.
 - Test-ping labels (kind=test) are excluded.
-- ml gate: ${total} labels collected — model training unlocks at 300 (config ml.min_labels).
+- ml gate: ${total} human labels collected — model training unlocks at 300 (config ml.min_labels).
 `;
 const outPath = outArg || join(HERE, '..', '..', 'ops', 'reports', `opswatch-labels-${date}.md`);
 mkdirSync(dirname(outPath), { recursive: true });

@@ -1,5 +1,7 @@
 // notify.mjs — Telegram delivery for ops-watch. Bot token read at runtime from
 // MEMORY.md (never typed/inlined — exec redactor lesson). Zero deps.
+// v3 (2026-10-23): message-level feedback keyboard REMOVED — per-card buttons only
+// (cards.mjs cardButtons). Old messages with the old keyboard still label fine via label.mjs.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,18 +70,5 @@ export function pingMessage(cluster, verdict, { test = false, tag = null, pingId
     `Window: ${esc(cluster.first_seen)} → ${esc(cluster.last_seen)}`,
   ];
   if (tag) lines.push(`Item: <code>#${esc(tag)}</code>`);
-  if (pingId) lines.push(`<i>Feedback: 👍 useful · 👎 noise · 🔕 mute 7d (buttons above) — or reply "ow noise ${esc(pingId)}"</i>`);
   return lines.join('\n');
-}
-
-// v2 feedback buttons (§4.2): message-level — a click applies to every item in the message.
-// callback_data ≤64 bytes: ow:<label>:<ping_id>. OpenClaw surfaces clicks as callback_data text.
-export function feedbackKeyboard(pingId, { withMissed = false } = {}) {
-  const row = [
-    { text: '👍 useful', callback_data: `ow:useful:${pingId}` },
-    { text: '👎 noise', callback_data: `ow:noise:${pingId}` },
-    { text: '🔕 mute 7d', callback_data: `ow:mute:${pingId}` },
-  ];
-  if (withMissed) row.push({ text: '➕ should have pinged', callback_data: `ow:missed:${pingId}` });
-  return { inline_keyboard: [row] };
 }

@@ -1,4 +1,5 @@
-// test/digest.test.mjs — digest collection/cap/state (§7). Send injected; no network.
+// test/digest.test.mjs — digest collection/cap/state (§7; v3 card rework 2026-10-23).
+// Send injected; no network. Buttons only on question cards (cap 5); no message-level keyboard.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
@@ -7,34 +8,57 @@ import { join } from 'node:path';
 
 const TMP = mkdtempSync(join(tmpdir(), 'opswatch-digest-test-'));
 process.env.OPSWATCH_DATA_DIR = TMP;
+process.env.OPSWATCH_DISABLE_QWEN = '1';
 const digest = await import('../digest.mjs');
 const lib = await import('../lib.mjs');
 
-const CFG = { ...lib.loadOpsConfig(join(TMP, 'missing.json')), digest: { enabled: true, send_at_ct: '08:00', max_items: 3 } };
+const CFG = { ...lib.loadOpsConfig(join(TMP, 'missing.json')), digest: { enabled: true, send_at_ct: '08:00', max_items: 3, max_questions: 5 } };
+const worthFn = async groups => groups.map(g => ({ ...g, rating: 'worth_a_look', headline: 'Something happened.', next_step: '', confidence: 0.7, qwen: true, fallback: false }));
 const seed = (queue, shadow) => {
-  writeFileSync(join(TMP, 'digest-queue.jsonl'), queue.map(q => JSON.stringify(q)).join('\n') + '\n');
-  writeFileSync(join(TMP, 'jev-v2-shadow.jsonl'), shadow.map(s => JSON.stringify(s)).join('\n') + '\n');
+  writeFileSync(join(TMP, 'digest-queue.jsonl'), queue.map(q => JSON.stringify(q)).join('\n') + (queue.length ? '\n' : ''));
+  writeFileSync(join(TMP, 'jev-v2-shadow.jsonl'), shadow.map(s => JSON.stringify(s)).join('\n') + (shadow.length ? '\n' : ''));
 };
 
-test('digest: shadow would-ping + queue items, cap + "+N more", pings.jsonl row, queue rotated', async () => {
+test('digest: shadow would-ping + queue items → cards, cap + "+N more", pings.jsonl row with cards, queue rotated', async () => {
   seed(
     Array.from({ length: 5 }, (_, i) => ({ ts: '2026-10-23T12:00:00Z', cycle_id: 'c', reason: 'jev-down', sig: `q${i}`, source: 'app', program: 'p', count: 2, sample: 's' })),
     [
-      { ts: new Date(Date.now() - 3600000).toISOString(), cycle_id: 'c1', mode: 'shadow', sig: 'sp1', source: 'sshd', program: 'sshd', count: 9, v2_decision: 'ping', v2_reason: 'security_relevant p=0.55', features: { samples: ['Failed password from 198.51.100.9'] }, probs: { security_relevant: 0.55 }, confidence: 0.6 },
-      { ts: new Date(Date.now() - 3500000).toISOString(), cycle_id: 'c1', mode: 'shadow', sig: 'su1', source: 'app', program: 'x', count: 3, v2_decision: 'digest', v2_reason: 'uncertain (argmax=routine_noise)', features: { samples: ['x'] }, probs: { routine_noise: 0.5 }, confidence: 0.4 },
+      { ts: new Date(Date.now() - 3600000).toISOString(), cycle_id: 'c1', mode: 'shadow', sig: 'sp1', source: 'sshd', program: 'sshd', count: 9, v2_decision: 'ping', v2_reason: 'security_relevant p=0.55', v1_decision: 'hold', features: { samples: ['Failed password from 198.51.100.9'] }, probs: { security_relevant: 0.55 }, confidence: 0.6 },
+      { ts: new Date(Date.now() - 3500000).toISOString(), cycle_id: 'c1', mode: 'shadow', sig: 'su1', source: 'app', program: 'x', count: 3, v2_decision: 'digest', v2_reason: 'uncertain (argmax=routine_noise)', v1_decision: 'hold', features: { samples: ['x'] }, probs: { routine_noise: 0.5 }, confidence: 0.4 },
     ],
   );
-  let sentBody = '';
-  const r = await digest.runDigest({ cfg: CFG, force: true, send: async (body, opts) => { sentBody = body; return { result: { message_id: 777 } }; } });
+  let sentBody = '', sentMarkup = null;
+  const r = await digest.runDigest({ cfg: CFG, force: true, rateFn: worthFn, send: async (body, opts) => { sentBody = body; sentMarkup = opts?.replyMarkup ?? null; return { result: { message_id: 777 } }; } });
   assert.equal(r.sent, true);
-  assert.ok(sentBody.includes('v2 shadow — WOULD have pinged'));
-  assert.ok(sentBody.includes('+4 more'), 'cap 3 → +4 more');
+  assert.ok(sentBody.includes('SSH logins'), 'friendly name in card title');
+  assert.ok(sentBody.includes('+4 more minor items'), 'cap 3 → +4 more');
+  assert.ok(!sentBody.includes('ow missed'), 'old digest footer gone');
+  assert.ok(sentMarkup && sentMarkup.inline_keyboard.length >= 1 && sentMarkup.inline_keyboard.length <= 3, 'per-card buttons only, ≤ shown cards');
+  for (const row of sentMarkup.inline_keyboard) for (const b of row) assert.ok(b.callback_data.length <= 64, 'callback ≤64 bytes');
   const rows = readFileSync(join(TMP, 'pings.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   const drow = rows.find(x => x.kind === 'digest');
   assert.ok(drow, 'digest recorded in pings.jsonl');
   assert.equal(drow.items.length, 3);
   assert.equal(drow.message_id, 777);
+  assert.ok(Array.isArray(drow.cards) && drow.cards.length >= 1, 'cards mapping recorded');
   assert.equal(existsSync(join(TMP, 'digest-queue.jsonl')), false, 'queue rotated after send');
+});
+
+test('digest: question cap honored (7 borderline items, max_questions 5 → 5 buttoned cards)', async () => {
+  const CFG5 = { ...CFG, digest: { ...CFG.digest, max_items: 15, max_questions: 5 } };
+  seed(
+    [],
+    Array.from({ length: 7 }, (_, i) => ({
+      ts: new Date(Date.now() - 3600000).toISOString(), cycle_id: 'c', mode: 'shadow', sig: `s${i}`,
+      source: 'svc' + i, program: '', count: 3, v2_decision: 'ping', v2_reason: 'operational_fault p=0.7 (conf 0.6)',
+      v1_decision: 'hold', features: { samples: [`sample ${i}`] }, probs: { operational_fault: 0.7 }, confidence: 0.6,
+    })),
+  );
+  let sentMarkup = null;
+  const r = await digest.runDigest({ cfg: CFG5, force: true, rateFn: worthFn, send: async (body, opts) => { sentMarkup = opts?.replyMarkup ?? null; return { result: { message_id: 778 } }; } });
+  assert.equal(r.sent, true);
+  assert.equal(r.questions, 5, 'hard cap 5 questions/day');
+  assert.equal(sentMarkup.inline_keyboard.length, 5);
 });
 
 test('digest: quiet hours → never sends', async () => {

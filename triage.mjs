@@ -26,8 +26,8 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, open
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { normalizeLine, clusterEvents, deterministicVerdict, appRulesVerdict, buildLokiEvent, scrub, loadOpsConfig, isQuietHoursCT } from './lib.mjs';
-import { sendTelegram, pingMessage, feedbackKeyboard } from './notify.mjs';
-import { assess, esc } from './assess.mjs';   // analyst enrichment (PLAN-qwen-assess 2026-10-23)
+import { sendTelegram } from './notify.mjs';
+import { groupItems, rateGroups, renderPing, RANK, plainWhy } from './cards.mjs';   // v3 plain-English cards (folds assess.mjs in)
 import { recordCycle } from './history.mjs';
 import { triageV2 } from './triage-v2.mjs';
 import { readFileSync as _rf } from 'node:fs';
@@ -179,8 +179,15 @@ export async function jevScoreV1(p2, { cfg, windowMin = 5, jevFn = jev, gateCfg 
   return { held, pingFromJev, jevDown, unscored };
 }
 
-// ── delivery: mutes → repeat filter → P0-first cap → send → mark only on ok ──
-export async function deliver(pingsRaw, { cfg, pingState, live = true, send = sendTelegram, now = Date.now(), cycleId = 'local' } = {}) {
+// ── delivery: mutes → repeat filter → card group/rate → volume gate → P0-first cap →
+// send (cards + per-card buttons, NO message-level keyboard) → mark only on ok.
+// v3 (2026-10-23): items are grouped per machine/service into plain-English cards
+// (cards.mjs), rated no_action / worth_a_look / needs_attention. With
+// cfg.live_ping_min_rating (default "worth_a_look"), no_action groups are diverted to the
+// digest queue instead of pinged — EXCEPT anything containing a P0/P1 rule hit, which
+// ALWAYS pings (deterministic layer above Qwen). Qwen failure → template fallback:
+// rule-hit P0/P1 = needs_attention, jev-only "novel" = no_action → digest (no flood).
+export async function deliver(pingsRaw, { cfg, pingState, live = true, send = sendTelegram, now = Date.now(), cycleId = 'local', rateFn = null, windowMin = 5 } = {}) {
   const repeatHours = ((cfg.pings?.repeat_hours ?? 4)) * 3600000;
   const maxPer = cfg.pings?.max_per_cycle ?? 10;
   const mutes = readMutes();
@@ -198,24 +205,57 @@ export async function deliver(pingsRaw, { cfg, pingState, live = true, send = se
     }
     candidates.push(x);
   }
-  const rank = { P0: 0, P1: 1, P2: 2 };
-  candidates.sort((a, b) => (rank[a.verdict.level] ?? 3) - (rank[b.verdict.level] ?? 3));
-  const capped = candidates.slice(0, maxPer);
-  const overCap = candidates.slice(maxPer);
-  const out = { candidates, sent: [], muted, repeatHeld, overCap, sendFailed: [], messageId: null, pingId: null };
+  const out = { candidates, sent: [], muted, repeatHeld, overCap: [], sendFailed: [], diverted: [], messageId: null, pingId: null };
   if (!live) return out;   // digest-only / dry run: classify only, no send, no marking
+  if (!candidates.length) return out;
+
+  // v3: group → rate → volume gate
+  let groups = groupItems(candidates, { cfg, windowMin });
+  const rate = rateFn || rateGroups;
+  groups = await rate(groups, { cfg, windowMin });
+  // deterministic invariant (holds even for injected raters): a group containing P0/P1
+  // rule hits is ALWAYS needs_attention — Qwen/templates never downgrade it
+  for (const g of groups) {
+    if (g.hasP0P1 && g.rating !== 'needs_attention') {
+      g.rating = 'needs_attention';
+      g.headline = plainWhy(g.why, { count: g.totalCount, windowMin: g.windowMin });
+      g.next_step = g.next_step || '';
+      g.qwen = false;
+    }
+  }
+  const minRating = cfg.live_ping_min_rating;
+  const minRank = (minRating && minRating !== 'none' && minRating !== 'off') ? (RANK[minRating] ?? 0) : -1;
+  const pingGroups = [], routineGroups = [];
+  for (const g of groups) {
+    if (RANK[g.rating ?? 'no_action'] < minRank && !g.hasP0P1) routineGroups.push(g);   // P0/P1 rule hits ALWAYS ping
+    else pingGroups.push(g);
+  }
+  out.diverted = routineGroups;
+
+  const pingItems = pingGroups.flatMap(g => g.items);
+  const rank = { P0: 0, P1: 1, P2: 2 };
+  pingItems.sort((a, b) => (rank[a.verdict.level] ?? 3) - (rank[b.verdict.level] ?? 3));
+  const capped = pingItems.slice(0, maxPer);
+  const overCap = pingItems.slice(maxPer);
+  out.overCap = overCap;
   if (!capped.length && !overCap.length) return out;
+
+  // re-group the capped items for rendering; ratings carried over from the rated set
+  const ratedByKey = new Map(groups.map(g => [g.key, g]));
+  const shownGroups = groupItems(capped, { cfg, windowMin }).map(g => {
+    const r = ratedByKey.get(g.key);
+    if (r) return { ...g, rating: r.rating, headline: r.headline, next_step: r.next_step, confidence: r.confidence, qwen: r.qwen, fallback: r.fallback };
+    return { ...g, rating: g.hasP0P1 ? 'needs_attention' : 'no_action', headline: plainWhy(g.why, { count: g.totalCount, windowMin: g.windowMin }), next_step: '', confidence: 0, qwen: false, fallback: true };
+  });
   out.pingId = Math.random().toString(36).slice(2, 6);
   const decidingMode = cfg.triage_mode === 'v2' ? 'v2' : 'v1';
+  const rendered = renderPing({ groups: shownGroups, pingId: out.pingId, overCap, test: process.env.OPSWATCH_TEST === '1', includeRoutine: minRank < 0 });
   const items = capped.map((x, i) => ({ ...x, item_id: `${out.pingId}.${i + 1}` }));
-  let body = items.map(x => pingMessage(x.cluster, x.verdict, { test: process.env.OPSWATCH_TEST === '1', tag: x.item_id })).join('\n\n———\n\n');
-  if (overCap.length) {
-    const top = overCap.slice(0, 5).map(x => `${x.cluster.source}/${x.cluster.program || '?'} ×${x.cluster.count}`).join(', ');
-    body += `\n\n➕ +${overCap.length} more P2 clusters (top: ${top}) — in digest`;
-  }
-  body += `\n\n<i>Feedback: 👍 useful · 👎 noise · 🔕 mute 7d — or reply "ow noise ${out.pingId}"</i>`;
+  // card_id ↔ sig mapping (label.mjs resolves buttons/replies through this)
+  const idBySig = new Map(items.map(x => [x.cluster.sig, x.item_id]));
+  const cards = rendered.cards.map(c => ({ ...c, item_ids: c.sigs.map(s => idBySig.get(s)).filter(Boolean) }));
   try {
-    const r = await send(body, { replyMarkup: feedbackKeyboard(out.pingId) });
+    const r = await send(rendered.body, { replyMarkup: rendered.keyboard });
     out.messageId = r?.result?.message_id ?? null;
     // mark-sent + ledger ONLY after Telegram ok — a failed send must never mute a sig for 4h
     for (const x of capped) pingState.lastP1[x.cluster.sig] = now;
@@ -224,6 +264,7 @@ export async function deliver(pingsRaw, { cfg, pingState, live = true, send = se
       items: items.map((x, i) => ({ item_id: `${out.pingId}.${i + 1}`, sig: x.cluster.sig,
         source: x.cluster.source, program: x.cluster.program || '', level: x.verdict.level,
         decision: x.verdict.why, mode: decidingMode, probs: null, confidence: null })),
+      cards,
     });
     out.sent = items;
     if (overCap.length) appendDigestQueue(overCap, 'over-cap', cycleId);   // visible in digest, NOT marked pinged
@@ -232,6 +273,8 @@ export async function deliver(pingsRaw, { cfg, pingState, live = true, send = se
     appendDigestQueue(out.sendFailed, 'telegram-send-failed', cycleId);
     console.error(`telegram ping FAILED: ${String(e && e.message || e).slice(0, 150)}`);
   }
+  // routine groups → digest queue (never marked pinged, never suppressed)
+  if (routineGroups.length) appendDigestQueue(routineGroups.flatMap(g => g.items), 'routine-no-action', cycleId);
   return out;
 }
 
@@ -334,7 +377,7 @@ async function main() {
 
   // ── Deliver (mutes → repeat → cap → send → mark on ok) ────────────────────
   const pingsRaw = [...p0, ...p1, ...pingItems];
-  const d = await deliver(pingsRaw, { cfg, pingState, live: live && !digestOnly, cycleId });
+  const d = await deliver(pingsRaw, { cfg, pingState, live: live && !digestOnly, cycleId, windowMin });
 
   // digest queue: v1 jevDown / v2 digest+unscored items (visible at 08:00, never silent)
   if (digestItems.length) appendDigestQueue(digestItems, mode === 'v2' ? 'v2-digest' : 'jev-down', cycleId);
@@ -390,28 +433,7 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 
   if (d.sent.length) {
-    console.error(`pinged ${d.sent.length} cluster(s) to Telegram`);
-    // Analyst enrichment (Qwen3.8-27B-t8k via LiteLLM): pings already sent — this can only
-    // ADD a follow-up assessment, never delay or suppress. Fail-open: null → skip silently.
-    const tAssess = Date.now();
-    const a = await assess(d.sent.slice(0, 10), { windowMin }).catch(() => null);
-    if (a) {
-      const lines = d.sent.slice(0, 10).map((x, i) => {
-        const t = (a.assessments[`c${i}`] || '').trim();
-        return t ? `▪ c${i} · ${esc(x.cluster.program || x.cluster.source || '?')}: ${esc(t)}` : null;
-      }).filter(Boolean).join('\n\n');
-      if (lines) {
-        try {
-          await sendTelegram(`🧠 <b>ops-watch assessment</b> (${esc(a.model)})\n\n${lines}`.slice(0, 3850));
-          console.error(`assessment sent (${a.latencyMs}ms)`);
-        } catch (e) {
-          console.error(`assessment telegram FAILED: ${String(e && e.message || e).slice(0, 120)}`);
-        }
-      }
-      logDecision({ gate: GATE, action: 'assess', pass: true, latency_ms: a.latencyMs, model: a.model });
-    } else {
-      logDecision({ gate: GATE, action: 'assess', pass: false, latency_ms: Date.now() - tAssess, note: 'disabled or fail-open (no assessment)' });
-    }
+    console.error(`pinged ${d.sent.length} item(s) in ${d.sent.length ? 'cards' : 'n/a'} to Telegram (plain-English cards; Qwen enrichment folded into the card render — no separate follow-up)`);
   }
 }
 

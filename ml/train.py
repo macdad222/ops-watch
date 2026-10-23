@@ -53,13 +53,20 @@ def featurize(label, shadow_by_sig):
         "held_7d": (sh.get("features") or {}).get("held_7d", 0) or 0,
         "hour_ct": (sh.get("features") or {}).get("ct_last_seen", "00:00")[:2] if (sh.get("features") or {}).get("ct_last_seen") else "00",
     }
-    src = (label.get("source") or "other").lower()
+    src = (label.get("event_source") or label.get("source") or "other").lower()
     for s in SOURCES:
         f[f"src_{s}"] = 1 if s in src else 0
     y = 1 if label.get("label") in ("useful", "missed") else 0 if label.get("label") in ("noise", "mute") else None
     if y is None:
         return None
     return f, y
+
+
+def human_labels(labels):
+    """v3 (2026-10-23): only HUMAN labels count toward the gate + training.
+    Human rows: source == "chris" (new) or source not in {"chris","auto"} (pre-v3 rows
+    carried the event source there). Auto rows (source == "auto", weight 0.3) never count."""
+    return [l for l in labels if l.get("source") != "auto"]
 
 
 def main():
@@ -69,7 +76,7 @@ def main():
     ap.add_argument("--min-labels", type=int, default=MIN_LABELS_DEFAULT)
     args = ap.parse_args()
 
-    labels = load_jsonl(Path(args.labels))
+    labels = human_labels(load_jsonl(Path(args.labels)))
     shadow_by_sig = {}
     for r in load_jsonl(Path(args.shadow)):
         if r.get("sig") and r.get("probs"):

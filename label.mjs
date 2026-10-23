@@ -1,9 +1,18 @@
 #!/usr/bin/env node
-// label.mjs — ops-watch feedback ingestion (plan §4.3). Runs ON .110 inside the container:
-//   docker exec ops-watch node label.mjs --msg <telegram_message_id> --label <useful|noise|mute|missed> --via <reaction|button|reply> [--item <item_id>]
-//   docker exec ops-watch node label.mjs --ping <ping_id> --label noise --via reply
-// Reads data/pings.jsonl for the message → items; enriches from data/jev-v2-shadow.jsonl;
-// appends data/labels.jsonl (LOCAL ONLY — never sent to TypeSafe/Qwen/anywhere);
+// label.mjs — ops-watch feedback ingestion (plan §4.3; v3 card rework 2026-10-23).
+// Runs ON .110 inside the container:
+//   docker exec ops-watch node label.mjs --msg <telegram_message_id> --label <useful|noise|mute|missed> --via <reaction|button|reply>
+//   docker exec ops-watch node label.mjs --card <card_id> --label <label> --via button      # per-card button (ow:<label>:<card_id>)
+//   docker exec ops-watch node label.mjs --msg <message_id> --label <label> --via reply     # human reply phrase → card(s)
+//   docker exec ops-watch node label.mjs --ping <ping_id> --label noise --via reply [--item <item_id>]   # old alias, still works
+// Resolution:
+//   --card <card_id> → every sig in that card (pings.jsonl cards[] mapping).
+//   reply without --card/--item → the single actionable card when there is exactly one;
+//   multiple actionable cards → all of them (the reply referred to the whole message);
+//   no cards (old messages) → every item in the message (old message-level behavior).
+// Appends data/labels.jsonl (LOCAL ONLY — never sent anywhere):
+//   human rows  source:"chris", weight 1
+//   auto rows   source:"auto", weight 0.3, auto_reason (written by digest.mjs, not here)
 // 'mute' → data/mutes.json {sig: until_ms} (now + feedback.mute_days, default 7).
 // ops-watch NEVER polls Telegram (shared bot token with OpenClaw) — labels arrive via Jarvon.
 import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs';
@@ -26,10 +35,14 @@ function readJsonl(name) {
   return out;
 }
 
-function findPing({ msg, pingId }) {
+function findPing({ msg, pingId, cardId }) {
   const pings = readJsonl('pings.jsonl');
   if (msg != null) {
     for (let i = pings.length - 1; i >= 0; i--) if (String(pings[i].message_id) === String(msg)) return pings[i];
+    return null;
+  }
+  if (cardId) {
+    for (let i = pings.length - 1; i >= 0; i--) if ((pings[i].cards || []).some(c => c.card_id === cardId)) return pings[i];
     return null;
   }
   for (let i = pings.length - 1; i >= 0; i--) if (pings[i].ping_id === pingId) return pings[i];
@@ -62,18 +75,39 @@ const via = getArg('--via') || 'reply';
 const msg = getArg('--msg');
 const pingId = getArg('--ping');
 const itemFilter = getArg('--item');
+const cardFilter = getArg('--card');
 
-if (!label || !LABELS.includes(label) || (!msg && !pingId)) {
-  console.error('usage: label.mjs --msg <message_id>|--ping <ping_id> --label <useful|noise|mute|missed> [--via reaction|button|reply] [--item <item_id>]');
+if (!label || !LABELS.includes(label) || (!msg && !pingId && !cardFilter)) {
+  console.error('usage: label.mjs --msg <message_id>|--ping <ping_id>|--card <card_id> --label <useful|noise|mute|missed> [--via reaction|button|reply] [--item <item_id>]');
   process.exit(2);
 }
 if (!VIAS.includes(via)) { console.error(`bad --via ${via}`); process.exit(2); }
 
-const ping = findPing({ msg, pingId });
+const ping = findPing({ msg, pingId, cardId: cardFilter });
 if (!ping) { console.error(`no pings.jsonl row for ${msg ? 'message ' + msg : 'ping ' + pingId}`); process.exit(1); }
 const shadow = shadowBySig();
-const items = (ping.items || []).filter(it => !itemFilter || it.item_id === itemFilter);
-if (!items.length) { console.error(`no matching items${itemFilter ? ' for ' + itemFilter : ''}`); process.exit(1); }
+
+// ── resolve which items the label applies to ─────────────────────────────────
+let targetCardIds = null;   // null = whole message (legacy), array = specific card(s)
+let items = (ping.items || []);
+if (cardFilter) {
+  const card = (ping.cards || []).find(c => c.card_id === cardFilter);
+  if (!card) { console.error(`no card ${cardFilter} in ping ${ping.ping_id}`); process.exit(1); }
+  targetCardIds = [card.card_id];
+  items = items.filter(it => card.sigs?.includes(it.sig));
+} else if (itemFilter) {
+  items = items.filter(it => it.item_id === itemFilter);
+} else if (via === 'reply' && Array.isArray(ping.cards) && ping.cards.length) {
+  // human reply phrase → card(s): one actionable card = that card; several = all of them
+  const actionable = ping.cards.filter(c => c.rating && c.rating !== 'no_action');
+  if (actionable.length) {
+    targetCardIds = actionable.map(c => c.card_id);
+    const sigs = new Set(actionable.flatMap(c => c.sigs || []));
+    items = items.filter(it => sigs.has(it.sig));
+  }
+  // no actionable cards → fall through: whole message (all items)
+}
+if (!items.length) { console.error(`no matching items${itemFilter ? ' for ' + itemFilter : ''}${cardFilter ? ' for card ' + cardFilter : ''}`); process.exit(1); }
 
 const now = Date.now();
 const rows = [];
@@ -85,10 +119,14 @@ for (const it of items) {
   rows.push({
     ts: new Date().toISOString(),
     label, via,
+    source: 'chris',          // label origin (auto rows from digest.mjs carry source:"auto")
+    weight: 1,
+    auto_reason: null,
     ping_id: ping.ping_id,
-    item_id: it.item_id,
+    item_id: it.item_id ?? null,
+    card_id: targetCardIds && targetCardIds.length === 1 ? targetCardIds[0] : (targetCardIds ? targetCardIds.join(',') : null),
     message_id: ping.message_id ?? null,
-    sig: it.sig, source: it.source, program: it.program,
+    sig: it.sig, event_source: it.event_source ?? it.source ?? null, program: it.program,
     decision: it.decision ?? null,
     mode: it.mode ?? ping.mode ?? null,
     jev: sh ? { probs: sh.probs, confidence: sh.confidence } : null,
@@ -102,5 +140,6 @@ for (const it of items) {
 }
 appendFileSync(join(DATA_DIR, 'labels.jsonl'), rows.map(r => JSON.stringify(r)).join('\n') + '\n');
 if (mutesChanged) saveMutes(mutes);
-console.log(`labeled ${rows.length} item(s): ${label} via ${via} (ping ${ping.ping_id})${mutesChanged ? ' · mutes updated' : ''}`);
-for (const r of rows) console.log(`  ${r.item_id} ${r.sig} ${r.source}/${r.program}`);
+const scope = targetCardIds ? `card(s) ${targetCardIds.join(',')}` : 'whole message';
+console.log(`labeled ${rows.length} item(s): ${label} via ${via} (${scope}, ping ${ping.ping_id})${mutesChanged ? ' · mutes updated' : ''}`);
+for (const r of rows) console.log(`  ${r.item_id ?? '-'} ${r.sig} ${r.event_source}/${r.program}`);

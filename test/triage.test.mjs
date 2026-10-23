@@ -9,10 +9,13 @@ import { join } from 'node:path';
 // Redirect data dir BEFORE importing the module under test
 const TMP = mkdtempSync(join(tmpdir(), 'opswatch-test-'));
 process.env.OPSWATCH_DATA_DIR = TMP;
+process.env.OPSWATCH_DISABLE_QWEN = '1';   // card tests never touch the network
 const triage = await import('../triage.mjs');
 const lib = await import('../lib.mjs');
 
 const CFG = lib.loadOpsConfig(join(TMP, 'no-such-config.json')); // defaults
+// v3: card rater injected — rate everything worth_a_look so the volume flag never diverts
+const worthFn = async groups => groups.map(g => ({ ...g, rating: 'worth_a_look', headline: 'h', next_step: '', confidence: 0.7, qwen: true, fallback: false }));
 function mkCluster(i, { count = 3, source = 'fortigate', program = 'traffic', level = 'P2' } = {}) {
   return { cluster: { sig: `sig${i}`, count, source, program, host: 'h', distinct_users: 1, distinct_ips: 2,
     first_seen: '2026-10-23T12:00:00Z', last_seen: '2026-10-23T12:04:00Z', samples: [`sample ${i} line`] },
@@ -98,7 +101,7 @@ test('send-path failure: lastP1 unchanged, no pings.jsonl row, items queued to d
   const pingState = { lastP1: {} };
   const pings = [mkCluster(1), mkCluster(2)];
   const failingSend = async () => { throw new Error('telegram 500'); };
-  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: true, send: failingSend });
+  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: true, send: failingSend, rateFn: worthFn });
   assert.equal(d.sent.length, 0);
   assert.deepEqual(pingState.lastP1, {}, 'failed send must NOT mark suppression');
   assert.equal(existsSync(join(TMP, 'pings.jsonl')), false, 'no pings.jsonl row on failure');
@@ -113,16 +116,19 @@ test('send-path cap: 14 pings → 10 sent + summary line, 4 queued, only 10 mark
   const pings = Array.from({ length: 14 }, (_, i) => mkCluster(i));
   let sentBody = '';
   const okSend = async (body) => { sentBody = body; return { result: { message_id: 12345 } }; };
-  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: true, send: okSend });
+  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: true, send: okSend, rateFn: worthFn });
   assert.equal(d.sent.length, 10);
   assert.equal(d.overCap.length, 4);
-  assert.ok(sentBody.includes('+4 more P2 clusters'), 'summary line present');
-  assert.ok(sentBody.includes('— in digest'));
+  assert.ok(sentBody.includes('+4 more minor items'), 'plain summary line present');
+  assert.ok(sentBody.includes('8am digest'));
+  assert.ok(!sentBody.includes('ow noise'), 'old feedback footer gone');
+  assert.ok(!sentBody.includes('useful ·'), 'old feedback footer gone');
   assert.equal(Object.keys(pingState.lastP1).length, 10, 'only delivered pings marked');
   const row = JSON.parse(readFileSync(join(TMP, 'pings.jsonl'), 'utf8').trim());
   assert.equal(row.kind, 'ping');
   assert.equal(row.items.length, 10);
   assert.equal(row.message_id, 12345);
+  assert.ok(Array.isArray(row.cards), 'cards mapping recorded');
   const q = readFileSync(join(TMP, 'digest-queue.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(q.filter(r => r.reason === 'over-cap').length, 4);
 });

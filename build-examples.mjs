@@ -72,13 +72,17 @@ for (const [, it] of pingedBySig) {
 }
 
 // labels refine: useful → fault/security pools; noise → routine pool
+// v3: HUMAN labels only (source:"chris"; pre-v3 rows have source = event source).
+// Auto rows (source:"auto") never refine example pools.
 if (fromLabels) {
   for (const l of readJsonl('labels.jsonl')) {
+    if (l.source === 'auto') continue;
+    const src = l.event_source ?? ((l.source === 'chris' || l.source === 'auto') ? '' : l.source);
     const sh = shadowBySig.get(l.sig);
     const sample = sh?.features?.samples?.[0] || l.decision;
     if (!sample) continue;
-    if (l.label === 'useful') push(familyOf(l.source, l.program), 'security_relevant', sample);
-    if (l.label === 'noise') push(familyOf(l.source, l.program), 'routine_noise', sample);
+    if (l.label === 'useful') push(familyOf(src, l.program), 'security_relevant', sample);
+    if (l.label === 'noise') push(familyOf(src, l.program), 'routine_noise', sample);
   }
 }
 
