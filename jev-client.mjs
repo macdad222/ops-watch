@@ -102,7 +102,10 @@ export async function jevClassifyClusters(state, clusters, { cfg, gate = null, e
           await sleep(wait);
           continue;
         }
-        if (isTokenLimit(e) && depth === 0 && chunk.items.length > 1) {
+        if (isTokenLimit(e) && depth < 4 && chunk.items.length > 1) {
+          // measured 2026-10-23: Jev output limit ≈ 700-750 tokens ≈ 12-13 Choice answers
+          // (~55 out-tokens each). Split recursively down to pairs so a half that still
+          // overflows splits again instead of failing whole (v1 chunk 30 → 15s all failed).
           const mid = Math.ceil(chunk.items.length / 2);
           calls.push({ type: 'call', chunk: chunk.index, attempt, ok: false, split: true, error: String(e.message).slice(0, 120) });
           await runChunk({ items: chunk.items.slice(0, mid), index: chunk.index }, depth + 1);

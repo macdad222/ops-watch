@@ -2,7 +2,7 @@
   "triage_mode": "shadow",
   "v1_cap": 150,
   "v2": {
-    "chunk_size": 30,
+    "chunk_size": 12,
     "concurrency": 3,
     "timeout_ms": 20000,
     "retries": 1,

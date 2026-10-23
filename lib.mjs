@@ -155,7 +155,8 @@ const LIB_HERE = dirname(fileURLToPath(import.meta.url));
 const OPS_CFG_DEFAULTS = {
   triage_mode: 'v1',
   v1_cap: 150,
-  v2: { chunk_size: 30, concurrency: 3, timeout_ms: 20000, retries: 1, backoff_ms: 2000,
+  v2: { chunk_size: 12,   // measured 2026-10-23: ~12-13 Choice answers fit Jev's output limit (~700 tok); 30 → max_tokens_exceeded
+    concurrency: 3, timeout_ms: 20000, retries: 1, backoff_ms: 2000,
         max_clusters_per_cycle: 300, model: 'jev-1.13.0',
         bands: { security_ping_p: 0.40, security_min_conf: 0.30, fault_ping_p: 0.60, fault_min_conf: 0.50,
                  routine_hold_p: 0.75, routine_min_conf: 0.60, expected_change_p: 0.60 },
