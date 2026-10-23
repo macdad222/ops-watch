@@ -231,6 +231,9 @@ export async function deliver(pingsRaw, { cfg, pingState, live = true, send = se
     else pingGroups.push(g);
   }
   out.diverted = routineGroups;
+  // routine groups → digest queue FIRST (never dropped, even when nothing else pings —
+  // the old early-return-below silently discarded them when ALL groups diverted)
+  if (routineGroups.length) appendDigestQueue(routineGroups.flatMap(g => g.items), 'routine-no-action', cycleId);
 
   const pingItems = pingGroups.flatMap(g => g.items);
   const rank = { P0: 0, P1: 1, P2: 2 };
@@ -273,8 +276,6 @@ export async function deliver(pingsRaw, { cfg, pingState, live = true, send = se
     appendDigestQueue(out.sendFailed, 'telegram-send-failed', cycleId);
     console.error(`telegram ping FAILED: ${String(e && e.message || e).slice(0, 150)}`);
   }
-  // routine groups → digest queue (never marked pinged, never suppressed)
-  if (routineGroups.length) appendDigestQueue(routineGroups.flatMap(g => g.items), 'routine-no-action', cycleId);
   return out;
 }
 

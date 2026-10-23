@@ -121,7 +121,23 @@ test('notify: message-level feedbackKeyboard is GONE', () => {
 });
 
 // ── deliver: volume flag ─────────────────────────────────────────────────────
+test('volume flag: ALL-diverted cycle still queues routine items (no silent drop on early return)', async () => {
+  rmSync(join(TMP, 'digest-queue.jsonl'), { force: true });
+  const pingState = { lastP1: {} };
+  const pings = [mkItem(1), mkItem(2, { program: 'traffic' }), mkItem(3, { source: 'loki', program: 'litellm-linux-test', host: 'tr-server' })];
+  let sent = 0;
+  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: true, cycleId: 'c4', rateFn: noActionFn,
+    send: async () => { sent++; return { result: { message_id: 45 } }; } });
+  assert.equal(d.sent.length, 0, 'nothing pinged');
+  assert.equal(sent, 0, 'no telegram send at all');
+  assert.equal(d.diverted.length, 2, 'both groups diverted');
+  const q = readFileSync(join(TMP, 'digest-queue.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(q.length, 3, 'all diverted items queued — even with zero ping candidates');
+  assert.ok(q.every(r => r.reason === 'routine-no-action'));
+});
+
 test('volume flag: no_action groups diverted to digest queue, not sent, not marked; P0 always pings', async () => {
+  rmSync(join(TMP, 'digest-queue.jsonl'), { force: true });
   const pingState = { lastP1: {} };
   const pings = [
     mkItem(1, { level: 'P2', why: 'jev scored novel (benign 0.49 < 0.6)' }),
