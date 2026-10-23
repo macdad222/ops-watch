@@ -69,7 +69,7 @@ test('jev-client: chunking + per-cluster answers + call rows', async () => {
         type: 'choice', choice: 'routine_noise', confidence: 0.8,
         probabilities: { routine_noise: 0.7 + i * 0.001, expected_change: 0.1, operational_fault: 0.1, security_relevant: 0.1 } }])) };
   };
-  const r = await client.jevClassifyClusters({ cycle: {} }, clusters, { cfg: CFG, jevFn: fakeJev });
+  const r = await client.jevClassifyClusters({ cycle: {} }, clusters, { cfg: { ...CFG, v2: { ...CFG.v2, chunk_size: 30 } }, jevFn: fakeJev });
   assert.deepEqual(seen, [30, 30, 15], 'chunks of 30');
   assert.equal(r.results.size, 75);
   assert.ok(r.results.get('clusters[0]').probs.routine_noise >= 0.7, 'probabilities preserved per cluster');
