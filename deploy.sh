@@ -27,10 +27,10 @@ ssh $H "set -e
 cd ~/$D
 R=releases/$SHA/projects/ops-watch
 J=releases/$SHA/projects/jev
-cp $R/*.mjs $R/*.json $R/*.sh $R/*.py $R/Dockerfile $R/compose.yaml .
+cp \$R/*.mjs \$R/*.json \$R/*.sh \$R/*.py \$R/Dockerfile \$R/compose.yaml .
 mkdir -p config
-cp $R/config/opswatch.json config/opswatch.json
-cp $J/jev-gate.mjs jev-gate.mjs
+cp \$R/config/opswatch.json config/opswatch.json
+cp \$J/jev-gate.mjs jev-gate.mjs
 echo $SHA > RELEASE
 chmod +x ticker.sh daily-trim.sh 2>/dev/null || true
 "
