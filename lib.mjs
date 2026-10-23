@@ -1,6 +1,9 @@
-// lib.mjs — ops-watch shared core: normalize, cluster, deterministic severity, scrub.
+// lib.mjs — ops-watch shared core: normalize, cluster, deterministic severity, scrub, config.
 // Zero deps. Deterministic work only (parsing/IDs/counts/dates) — Jev does semantic judgment.
 import { createHash } from 'node:crypto';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 // ── Scrub for egress (Jev rule: no keys/tokens/private contact data to third party) ──
 const SCRUBBERS = [
@@ -112,13 +115,21 @@ export function signature(e) {
 function maskIp(ip) { const o = ip.split('.'); return o.length === 4 ? `${o[0]}.${o[1]}.${o[2]}.x` : ip; }
 
 // ── Cluster events by signature within a time window ────────────────────────
-export function clusterEvents(events, windowMin = 5) {
+export function clusterEvents(events, windowMin = 5, { mode = 'window' } = {}) {
   const sorted = [...events].sort((a, b) => new Date(a.ts) - new Date(b.ts));
   const tEnd = new Date(sorted.at(-1)?.ts ?? Date.now()).getTime();
-  const win = { start: new Date(tEnd - windowMin * 60000).toISOString(), end: new Date(tEnd).toISOString() };
+  // v2 (2026-10-23 drop-bug fix): mode 'batch' clusters the WHOLE unread batch — the old
+  // window filter silently discarded every event older than (newest − windowMin), so a
+  // backlog (Loki outage, restart, flood) was dropped without a trace. --window-min is
+  // a label only in batch mode; window = actual span of the batch.
+  const batch = mode === 'batch';
+  const win = batch
+    ? { start: new Date(sorted[0]?.ts ?? tEnd).toISOString(), end: new Date(tEnd).toISOString(), label_min: windowMin }
+    : { start: new Date(tEnd - windowMin * 60000).toISOString(), end: new Date(tEnd).toISOString() };
+  const cutoff = batch ? -Infinity : tEnd - windowMin * 60000;
   const bySig = new Map();
   for (const e of sorted) {
-    if (new Date(e.ts).getTime() < tEnd - windowMin * 60000) continue; // window only
+    if (new Date(e.ts).getTime() < cutoff) continue; // window mode only
     if (!bySig.has(e.sig)) bySig.set(e.sig, []);
     bySig.get(e.sig).push(e);
   }
@@ -137,6 +148,52 @@ export function clusterEvents(events, windowMin = 5) {
     });
   }
   return { window: win, clusters: clusters.sort((a, b) => b.count - a.count) };
+}
+
+// ── ops-watch v2 config (config/opswatch.json) — re-read every cycle ─────────
+const LIB_HERE = dirname(fileURLToPath(import.meta.url));
+const OPS_CFG_DEFAULTS = {
+  triage_mode: 'v1',
+  v1_cap: 150,
+  v2: { chunk_size: 30, concurrency: 3, timeout_ms: 20000, retries: 1, backoff_ms: 2000,
+        max_clusters_per_cycle: 300, model: 'jev-1.13.0',
+        bands: { security_ping_p: 0.40, security_min_conf: 0.30, fault_ping_p: 0.60, fault_min_conf: 0.50,
+                 routine_hold_p: 0.75, routine_min_conf: 0.60, expected_change_p: 0.60 },
+        thresholds_by_source: {},
+        prestep: { enabled: true, min_held_7d: 3, max_rate_vs_baseline: 3 } },
+  pings: { max_per_cycle: 10, repeat_hours: 4 },
+  quiet_hours_ct: { start: '00:00', end: '06:00' },
+  digest: { enabled: true, send_at_ct: '08:00', max_items: 15 },
+  feedback: { method: 'reply', mute_days: 7 },
+  ml: { min_labels: 300, shadow: true },
+};
+function deepMerge(base, over) {
+  const out = { ...base };
+  for (const [k, v] of Object.entries(over || {})) {
+    out[k] = (v && typeof v === 'object' && !Array.isArray(v) && base[k] && typeof base[k] === 'object' && !Array.isArray(base[k]))
+      ? deepMerge(base[k], v) : v;
+  }
+  return out;
+}
+export function loadOpsConfig(path) {
+  const p = path || process.env.OPSWATCH_CONFIG || join(LIB_HERE, 'config', 'opswatch.json');
+  try {
+    if (!existsSync(p)) return deepMerge(OPS_CFG_DEFAULTS, {});
+    return deepMerge(OPS_CFG_DEFAULTS, JSON.parse(readFileSync(p, 'utf8')));
+  } catch { return deepMerge(OPS_CFG_DEFAULTS, {}); } // unreadable config → defaults, never crash a cycle
+}
+
+// ── Quiet hours (CT) — container clock is UTC, compute CT wall time properly ──
+export function ctWallTime(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(date);
+  const get = t => parts.find(p => p.type === t)?.value || '00';
+  const h = get('hour');
+  return `${h === '24' ? '00' : h}:${get('minute')}`;
+}
+export function isQuietHoursCT(cfg, date = new Date()) {
+  const { start = '00:00', end = '06:00' } = cfg?.quiet_hours_ct || {};
+  const t = ctWallTime(date);
+  return t >= start && t < end; // start inclusive, end exclusive
 }
 
 // ── Deterministic severity layer — ALWAYS overrides Jev ─────────────────────

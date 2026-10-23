@@ -1,0 +1,138 @@
+// test/triage.test.mjs — ops-watch v2 unit tests (plan §7). No Telegram, no Jev API.
+// Run: node --test test/
+import { test, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Redirect data dir BEFORE importing the module under test
+const TMP = mkdtempSync(join(tmpdir(), 'opswatch-test-'));
+process.env.OPSWATCH_DATA_DIR = TMP;
+const triage = await import('../triage.mjs');
+const lib = await import('../lib.mjs');
+
+const CFG = lib.loadOpsConfig(join(TMP, 'no-such-config.json')); // defaults
+function mkCluster(i, { count = 3, source = 'fortigate', program = 'traffic', level = 'P2' } = {}) {
+  return { cluster: { sig: `sig${i}`, count, source, program, host: 'h', distinct_users: 1, distinct_ips: 2,
+    first_seen: '2026-10-23T12:00:00Z', last_seen: '2026-10-23T12:04:00Z', samples: [`sample ${i} line`] },
+    verdict: { level, why: `why ${i}` } };
+}
+const fakeJev = (state, questions) => ({
+  answers: Object.fromEntries(Object.keys(questions).map(k => [k, { noul: 0.9 }])),
+});
+
+test('slicing: 200 synthetic P2 → 150 scored, 50 unscored, 0 double-counted', async () => {
+  const p2 = Array.from({ length: 200 }, (_, i) => mkCluster(i));
+  const r = await triage.jevScoreV1(p2, { cfg: CFG, windowMin: 5, jevFn: fakeJev, gateCfg: { enabled: true, threshold: 0.75 } });
+  assert.equal(r.held.length, 200);            // 150 jev-benign + 50 batch-overflow (all held, none pinged)
+  assert.equal(r.held.filter(h => h.heldBy === 'batch-overflow').length, 50);
+  assert.equal(r.held.filter(h => h.heldBy !== 'batch-overflow').length, 150);
+  assert.equal(r.unscored.length, 50);
+  assert.ok(r.unscored.every(u => u.reason === 'batch-overflow'));
+  // 0 double-counted: each sig appears exactly once across held+ping+jevDown
+  const seen = new Map();
+  for (const h of [...r.held, ...r.pingFromJev, ...r.jevDown]) seen.set(h.cluster.sig, (seen.get(h.cluster.sig) || 0) + 1);
+  assert.ok([...seen.values()].every(n => n === 1), 'no cluster handled twice');
+});
+
+test('clusterEvents batch mode: events spanning 40 min all clustered', () => {
+  const t0 = Date.parse('2026-10-23T12:00:00Z');
+  const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+  const events = [];
+  for (let m = 0; m <= 40; m += 10) {
+    events.push({ source: 'syslog', host: 'h', program: 'app', ts: new Date(t0 + m * 60000).toISOString(),
+      message: `event ${words[m / 10]} marker`, fields: {}, received_at: new Date(t0 + m * 60000).toISOString(), raw: 'x' });
+  }
+  for (const e of events) e.sig = lib.signature(e);   // raw fixtures bypass normalizeLine → set sig explicitly
+  const { window, clusters } = lib.clusterEvents(events, 5, { mode: 'batch' });
+  assert.equal(clusters.length, events.length, 'no event dropped by window filter');
+  assert.equal(window.start, events[0].ts);
+  assert.equal(window.end, events.at(-1).ts);
+  assert.equal(window.label_min, 5);
+  // window mode still filters (old behavior preserved for direct callers)
+  const w = lib.clusterEvents(events, 5, { mode: 'window' });
+  assert.ok(w.clusters.length < events.length);
+});
+
+test('send-path failure: lastP1 unchanged, no pings.jsonl row, items queued to digest', async () => {
+  const pingState = { lastP1: {} };
+  const pings = [mkCluster(1), mkCluster(2)];
+  const failingSend = async () => { throw new Error('telegram 500'); };
+  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: true, send: failingSend });
+  assert.equal(d.sent.length, 0);
+  assert.deepEqual(pingState.lastP1, {}, 'failed send must NOT mark suppression');
+  assert.equal(existsSync(join(TMP, 'pings.jsonl')), false, 'no pings.jsonl row on failure');
+  assert.equal(d.sendFailed.length, 2);
+  const q = readFileSync(join(TMP, 'digest-queue.jsonl'), 'utf8').trim().split('\n');
+  assert.equal(q.length, 2);
+  assert.ok(q.every(r => JSON.parse(r).reason === 'telegram-send-failed'));
+});
+
+test('send-path cap: 14 pings → 10 sent + summary line, 4 queued, only 10 marked', async () => {
+  const pingState = { lastP1: {} };
+  const pings = Array.from({ length: 14 }, (_, i) => mkCluster(i));
+  let sentBody = '';
+  const okSend = async (body) => { sentBody = body; return { result: { message_id: 12345 } }; };
+  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: true, send: okSend });
+  assert.equal(d.sent.length, 10);
+  assert.equal(d.overCap.length, 4);
+  assert.ok(sentBody.includes('+4 more P2 clusters'), 'summary line present');
+  assert.ok(sentBody.includes('— in digest'));
+  assert.equal(Object.keys(pingState.lastP1).length, 10, 'only delivered pings marked');
+  const row = JSON.parse(readFileSync(join(TMP, 'pings.jsonl'), 'utf8').trim());
+  assert.equal(row.kind, 'ping');
+  assert.equal(row.items.length, 10);
+  assert.equal(row.message_id, 12345);
+  const q = readFileSync(join(TMP, 'digest-queue.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(q.filter(r => r.reason === 'over-cap').length, 4);
+});
+
+test('mutes: muted sig not pinged, P0 still pings, expired mute ignored', async () => {
+  const now = Date.now();
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(join(TMP, 'mutes.json'), JSON.stringify({ sig1: now + 3600000, sig2: now - 1000 }));
+  const pingState = { lastP1: {} };
+  const pings = [
+    mkCluster(1, { level: 'P1' }),                       // sig1 → muted
+    mkCluster(2, { level: 'P1' }),                       // sig2 → expired mute → pinged
+    { ...mkCluster(1), verdict: { level: 'P0', why: 'honeytoken' } }, // sig1 P0 → NEVER muted
+  ];
+  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: false });
+  assert.deepEqual(d.muted.map(x => x.cluster.sig), ['sig1']);
+  assert.equal(d.candidates.length, 2, 'expired-mute P1 + P0 remain candidates');
+  assert.ok(d.candidates.some(x => x.verdict.level === 'P0' && x.cluster.sig === 'sig1'), 'P0 bypasses mute');
+  rmSync(join(TMP, 'mutes.json'));
+});
+
+test('repeat suppression: recent lastP1 held, P0 always re-pings', async () => {
+  const now = Date.now();
+  const pingState = { lastP1: { sig1: now - 3600000 } }; // 1h ago < 4h
+  const pings = [mkCluster(1), { ...mkCluster(1), verdict: { level: 'P0', why: 'honeytoken' } }];
+  const d = await triage.deliver(pings, { cfg: CFG, pingState, live: false });
+  assert.equal(d.repeatHeld.length, 1);
+  assert.equal(d.candidates.length, 1);
+  assert.equal(d.candidates[0].verdict.level, 'P0');
+});
+
+test('config loader: defaults on missing file, deep-merge on real file', () => {
+  const def = lib.loadOpsConfig(join(TMP, 'definitely-missing.json'));
+  assert.equal(def.triage_mode, 'v1');
+  assert.equal(def.v1_cap, 150);
+  assert.equal(def.pings.max_per_cycle, 10);
+  const custom = join(TMP, 'cfg.json');
+  writeFileSync(custom, JSON.stringify({ triage_mode: 'shadow', v1_cap: 99 }));
+  const c = lib.loadOpsConfig(custom);
+  assert.equal(c.triage_mode, 'shadow');
+  assert.equal(c.v1_cap, 99);
+  assert.equal(c.pings.max_per_cycle, 10, 'unspecified keys keep defaults');
+});
+
+test('quiet hours CT: 01:30 CT quiet, 12:35 CT not, boundaries', () => {
+  const cfg = { quiet_hours_ct: { start: '00:00', end: '06:00' } };
+  // 2026-10-23 06:30 UTC = 01:30 CDT (UTC-5 in October)
+  assert.equal(lib.isQuietHoursCT(cfg, new Date('2026-10-23T06:30:00Z')), true);
+  assert.equal(lib.isQuietHoursCT(cfg, new Date('2026-10-23T17:35:00Z')), false); // 12:35 CDT
+  assert.equal(lib.isQuietHoursCT(cfg, new Date('2026-10-23T05:59:00Z')), true);  // 00:59 CDT
+  assert.equal(lib.isQuietHoursCT(cfg, new Date('2026-10-23T11:00:00Z')), false); // 06:00 CDT boundary (end exclusive)
+});
