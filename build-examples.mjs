@@ -31,7 +31,10 @@ const fams = {};
 const fam = f => fams[f] = fams[f] || { routine_noise: [], operational_fault: [], security_relevant: [] };
 const push = (f, opt, sample) => {
   if (!sample) return;
-  const s = scrub(String(sample)).slice(0, 140);
+  const s = scrub(String(sample))
+    .replace(/\b(?:192\.168|10)\.\d+\.\d+\.\d+\b/g, '<lan-ip>')
+    .replace(/\b172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+\b/g, '<lan-ip>')
+    .slice(0, 140);
   const arr = fam(f)[opt];
   if (!arr.includes(s) && arr.length < MAX_PER) arr.push(s);
 };
