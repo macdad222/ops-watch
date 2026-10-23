@@ -1,149 +1,93 @@
 {
-  "generated_at": "2026-10-23T18:00:00Z",
-  "generated_by": "hand-seeded starter (build-examples.mjs mining lands in v2 step 6)",
-  "note": "Example situations embedded in Choice criteria descriptions. Scrubbed; RFC5737/documentation IPs only. Refreshed weekly from labels (build-examples.mjs --from-labels).",
+  "generated_at": "2026-10-23T18:01:00.341Z",
+  "generated_by": "build-examples.mjs",
+  "note": "Mined from local ledgers. Scrubbed (sk/AKIA/Bearer/JWT/email/phone), ≤140 chars, ≤3 per option per family. Review before git commit.",
   "families": {
+    "other": {
+      "routine_noise": [
+        "(APIServer pid=60) INFO 10-23 17:59:43 [loggers.py:315] Engine 000: Avg prompt throughput: 0.0 tokens/s, Avg generation throughput: 23.1 tok",
+        "(APIServer pid=60) INFO 10-23 17:59:43 [metrics.py:136] SpecDecoding metrics: Mean acceptance length: 3.04, Mean verification depth: 3.00/3,",
+        "(APIServer pid=60) INFO:     <lan-ip>:42158 - \"POST /v1/chat/completions HTTP/1.1\" 200 OK"
+      ],
+      "expected_change": [
+        "version/banner lines changing right after a known update"
+      ],
+      "operational_fault": [
+        "jev scored novel (benign 0.38 < 0.6)",
+        "jev scored novel (benign 0.54 < 0.6)"
+      ],
+      "security_relevant": []
+    },
+    "mac": {
+      "routine_noise": [
+        "watchdog: up (streak: 0, alerted: 0) — down alerts after 3 consecutive failures",
+        "Error: write udp4 0.0.0.0:56089->239.255.255.250:1900: sendto: no route to host",
+        "Error executing Sonos check: Command failed: /opt/homebrew/bin/sonos status --name \"Pool\""
+      ],
+      "expected_change": [
+        "launchd job reload right after a plist edit + bootstrap",
+        "Login window / screen unlock events during work hours"
+      ],
+      "operational_fault": [],
+      "security_relevant": []
+    },
     "fortigate": {
       "routine_noise": [
-        "type=traffic action=deny level=information dstip=203.0.113.5 port=443 recurring deny hum at ~baseline rate all day",
-        "type=traffic action=accept level=information — outbound web/session allow flows, thousands per hour, no pattern change",
-        "type=event subtype=vpn level=information tunnel status polls every 60s, same result each time"
+        "healthcheck failed fatally"
       ],
       "expected_change": [
         "type=event subtype=system action=login level=notification admin login from the office IP right after a known maintenance window",
         "type=event action=config level=information during a documented change window"
       ],
       "operational_fault": [
-        "type=event subtype=system level=warning memory usage above threshold repeating every poll",
-        "type=traffic level=warning action=deny storm — deny rate 10x baseline for 20 minutes"
+        "volume burst: 66 events in window",
+        "jev scored novel (benign 0.58 < 0.6)",
+        "jev scored novel (benign 0.59 < 0.6)"
       ],
-      "security_relevant": [
-        "type=event subtype=admin level=warning 'Admin login failed' from an IP that never administered the box, 5+ in 5 min",
-        "type=utm action=block-dns botnet C&C hits from an internal host, sustained",
-        "type=event action=config level=information at 03:00 local — config change nobody scheduled"
-      ]
+      "security_relevant": []
     },
     "sshd": {
-      "routine_noise": [
-        "pam_unix(sshd:session): session opened for user deploy by (uid=0) — the deploy key's normal session churn",
-        "systemd-logind: New session of user chrismacfarland — interactive logins at normal times"
-      ],
+      "routine_noise": [],
       "expected_change": [
         "Accepted publickey for deploy after a known deploy.sh run from the mini",
         "sshd service restart logged right after an OS package update"
       ],
-      "operational_fault": [
-        "sshd[123]: error: kex_exchange_identification: Connection closed — repeated, growing",
-        "systemd[1]: ssh.service: Failed with result 'exit-code' in a crash loop"
-      ],
-      "security_relevant": [
-        "Failed password for invalid user admin from 198.51.100.7 port 40022 ssh2 — many users in minutes (brute force)",
-        "Accepted password for root from an IP with no prior history"
-      ]
+      "operational_fault": [],
+      "security_relevant": []
     },
     "docker": {
-      "routine_noise": [
-        "container healthcheck GET /health 200 every 15s at baseline",
-        "containerd: time=level=info msg=snapshotter — steady startup/shutdown bookkeeping"
-      ],
+      "routine_noise": [],
       "expected_change": [
         "Container started/created right after a deploy (docker compose up)",
         "Container killed (SIGTERM) then restarted during a documented maintenance"
       ],
-      "operational_fault": [
-        "container exited with code 137 (OOMKilled) then restart-looping",
-        "postgres: FATAL: the database system is in recovery mode — repeating"
-      ],
-      "security_relevant": [
-        "Container launched with unusual entrypoint or new container name never seen before",
-        "Container suddenly making outbound connections to a fresh external IP on a sensitive port"
-      ]
+      "operational_fault": [],
+      "security_relevant": []
     },
     "unifi": {
-      "routine_noise": [
-        "wireless client roam/associate events at normal daily volume",
-        "periodic controller stats/backup job entries"
-      ],
+      "routine_noise": [],
       "expected_change": [
         "AP adopted/restarted after a firmware update window",
         "New SSID or client appearing when a known guest arrived"
       ],
-      "operational_fault": [
-        "AP disconnected — all clients off one AP, repeating",
-        "controller unreachable alerts recurring"
-      ],
-      "security_relevant": [
-        "Rogue AP detected / wireless client with unknown MAC joining the trusted SSID",
-        "Admin login to controller from a new external IP"
-      ]
-    },
-    "mac": {
-      "routine_noise": [
-        "launchd service keepalive re-launch at its normal cadence",
-        "periodic Time Machine / Spotlight indexing messages"
-      ],
-      "expected_change": [
-        "launchd job reload right after a plist edit + bootstrap",
-        "Login window / screen unlock events during work hours"
-      ],
-      "operational_fault": [
-        "launchd service exiting every few minutes (crash loop)",
-        "disk I/O errors or kernel panics repeating"
-      ],
-      "security_relevant": [
-        "sudo/su session from an unexpected account or at an unusual hour",
-        "tccd/privacy prompts for a binary never seen before"
-      ]
+      "operational_fault": [],
+      "security_relevant": []
     },
     "kernel": {
-      "routine_noise": [
-        "kernel: TCP: request_sock_TCP: Possible SYN flooding — steady low-rate background on busy hosts"
-      ],
+      "routine_noise": [],
       "expected_change": [
         "kernel: EXT4-fs mounted after a planned reboot"
       ],
-      "operational_fault": [
-        "kernel: Out of memory: Killed process — repeating OOM kills",
-        "blk_update_request: I/O error repeated on the same device"
-      ],
-      "security_relevant": [
-        "kernel: audit: SElinux/apparmor denials for a brand-new binary",
-        "unexpected module loaded / kernel taint at an odd hour"
-      ]
+      "operational_fault": [],
+      "security_relevant": []
     },
     "cron": {
-      "routine_noise": [
-        "CRON[123]: (root) CMD (run-parts /etc/cron.hourly) every hour at baseline",
-        "backup.sh completing with the same output each night"
-      ],
+      "routine_noise": [],
       "expected_change": [
         "New cron entry firing right after a deploy that added it"
       ],
-      "operational_fault": [
-        "cron job's output switched from 'done' to repeated error lines",
-        "backup job missing from its normal slot, then a failure entry"
-      ],
-      "security_relevant": [
-        "CRON entry running an unfamiliar path/binary as root",
-        "cron job suddenly exfiltrating to a new external host (curl/wget to unknown domain)"
-      ]
-    },
-    "other": {
-      "routine_noise": [
-        "health/metrics scrape 200s at steady cadence",
-        "debug-level component chatter at unchanged volume"
-      ],
-      "expected_change": [
-        "version/banner lines changing right after a known update"
-      ],
-      "operational_fault": [
-        "error-rate spike far above the source's baseline",
-        "service failing to bind / repeated connection refused"
-      ],
-      "security_relevant": [
-        "auth failures across many distinct users in a short window",
-        "sudden volume from one external IP to sensitive ports"
-      ]
+      "operational_fault": [],
+      "security_relevant": []
     }
   }
 }
