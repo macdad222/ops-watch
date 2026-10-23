@@ -129,7 +129,7 @@ if (asJson) {
   console.log(`confidence: median=${f(out.confidence.median)} min=${f(out.confidence.min)} max=${f(out.confidence.max)}`);
   console.log(`est pings/day: v1=${out.est_pings_per_day.v1} v2=${out.est_pings_per_day.v2}`);
   console.log(`tokens: in=${tokensIn} out=${tokensOut} ≈$${out.tokens.est_usd_per_day}/day`);
-  if (v2wouldPing_v1hold.length) {
+  if (v2wouldPing_v1held.length) {
     console.log(`\nTop v2-would-PING that v1 held (${v2wouldPing_v1hold.length} shown of ${scored.filter(r => r.v1_decision === 'hold' && r.v2_decision === 'ping').length}):`);
     for (const r of v2wouldPing_v1hold) console.log(`  ${r.source}/${r.program} ×${r.count} p_sr=${(r.probs?.security_relevant ?? 0).toFixed(2)} conf=${(r.confidence ?? 0).toFixed(2)} — ${(r.features?.samples?.[0] || '').slice(0, 90)}`);
   }
