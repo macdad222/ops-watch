@@ -107,7 +107,7 @@ const out = {
   },
   argmax_dist: argmaxDist,
   confidence: { median: confs.length ? +median(confs).toFixed(3) : null, min: confs[0] ?? null, max: confs.at(-1) ?? null },
-  top_v2_ping_v1_hold: v2wouldPing_v1hold.map(r => ({ sig: r.sig, source: r.source, program: r.program, count: r.count,
+  top_v2_ping_v1_hold: v2wouldPing_v1held.map(r => ({ sig: r.sig, source: r.source, program: r.program, count: r.count,
     p_sr: r.probs?.security_relevant, p_of: r.probs?.operational_fault, conf: r.confidence, sample: r.features?.samples?.[0]?.slice(0, 90) })),
   top_v2_hold_v1_ping: v2wouldHold_v1pinged.map(r => ({ sig: r.sig, source: r.source, program: r.program, count: r.count,
     p_rn: r.probs?.routine_noise, conf: r.confidence, v1_benignProb: r.v1_benignProb, sample: r.features?.samples?.[0]?.slice(0, 90) })),
