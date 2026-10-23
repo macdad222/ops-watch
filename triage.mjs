@@ -264,27 +264,30 @@ async function main() {
   let v2res = null;
   if (mode === 'v2') {
     // v2 decides; v1 not called (plan §3.10)
-    v2res = await triageV2(p2, { cfg, window, cycleId, mode, windowMin, examples: EXAMPLES });
+    try { v2res = await triageV2(p2, { cfg, window, cycleId, mode, windowMin, examples: EXAMPLES }); }
+    catch (e) { console.error(`v2 triage FAILED (${e.message}) — fail-open: no suppression this cycle`); logDecision({ gate: GATE, action: 'v2-error', pass: false, error: String(e.message).slice(0, 120) }); p2.forEach(x => v1.jevDown.push({ ...x, verdict: { ...x.verdict, why: `v2 error (${String(e.message).slice(0, 40)}) → digest, flagged` } })); }
   } else {
     v1 = await jevScoreV1(p2, { cfg, windowMin });
     if (mode === 'shadow' && p2.length) {
-      // SHADOW: v1 decided above; v2 runs on the SAME P2 set, ledger-only (plan §3.10)
+      // SHADOW: v1 decided above; v2 runs on the SAME P2 set, ledger-only (plan §3.10).
+      // Shadow failure must NEVER break the cycle — v1 already decided and deliver still runs.
       const v1Map = new Map();
       for (const h of v1.held) v1Map.set(h.cluster.sig, { decision: h.heldBy === 'batch-overflow' ? 'unscored' : 'hold', benignProb: h.benignProb });
       for (const p of v1.pingFromJev) v1Map.set(p.cluster.sig, { decision: 'ping', benignProb: p.benignProb });
       for (const j of v1.jevDown) v1Map.set(j.cluster.sig, { decision: 'digest', benignProb: null });
-      v2res = await triageV2(p2, { cfg, window, cycleId, mode, v1Map, windowMin, examples: EXAMPLES });
+      try { v2res = await triageV2(p2, { cfg, window, cycleId, mode, v1Map, windowMin, examples: EXAMPLES }); }
+      catch (e) { console.error(`v2 shadow FAILED (${e.message}) — v1 unaffected`); logDecision({ gate: GATE, action: 'v2-shadow-error', pass: false, error: String(e.message).slice(0, 120) }); }
     }
   }
   const pingItems = mode === 'v2'
-    ? [...p2].filter(x => v2res?.decisions.get(x.cluster.sig)?.decision === 'ping')
-        .map(x => ({ ...x, verdict: { level: 'P2', why: `v2: ${v2res.decisions.get(x.cluster.sig).reason}` } }))
+    ? (v2res ? [...p2].filter(x => v2res.decisions.get(x.cluster.sig)?.decision === 'ping')
+        .map(x => ({ ...x, verdict: { level: 'P2', why: `v2: ${v2res.decisions.get(x.cluster.sig).reason}` } })) : [])
     : v1.pingFromJev;
   const digestItems = mode === 'v2'
-    ? [...p2].filter(x => ['digest', 'unscored'].includes(v2res?.decisions.get(x.cluster.sig)?.decision))
+    ? (v2res ? [...p2].filter(x => ['digest', 'unscored'].includes(v2res.decisions.get(x.cluster.sig)?.decision)) : v1.jevDown)
     : v1.jevDown;
   const v2HoldItems = mode === 'v2'
-    ? [...p2].filter(x => v2res?.decisions.get(x.cluster.sig)?.decision === 'hold')
+    ? (v2res ? [...p2].filter(x => v2res.decisions.get(x.cluster.sig)?.decision === 'hold') : [])
     : [];
   held.push(...v1.held, ...v2HoldItems.map(x => ({ ...x, benignProb: null, heldBy: 'v2-jev-routine' })));
 

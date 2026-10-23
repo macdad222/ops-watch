@@ -146,7 +146,7 @@ export async function triageV2(p2, { cfg, window, cycleId, mode = 'shadow', v1Ma
       shadowRows.push({
         ts: new Date().toISOString(), cycle_id: cycleId, mode,
         sig: f.sig, source: f.source, program: f.program, count: f.count_this_cycle,
-        chunk: r.chunk ?? null,
+        chunk: r?.chunk ?? null,
         features: f,
         probs: v2dec.probs, confidence: v2dec.confidence,
         v2_decision: v2dec.decision, v2_reason: v2dec.reason,
