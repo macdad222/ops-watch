@@ -10,6 +10,9 @@ while true; do
   fi
   node triage.mjs data/events.jsonl --live --state-file data/triage-state.json --window-min 5 >> logs/triage.log 2>&1 \
     || echo "$(date -u +%FT%TZ) triage FAILED" >> logs/ticker.log
+  # daily digest (08:00 CT; exits silently unless due; never sends in quiet hours)
+  node digest.mjs --if-due >> logs/digest.log 2>&1 \
+    || echo "$(date -u +%FT%TZ) digest FAILED" >> logs/ticker.log
   # compact when >50MB AND fully consumed by triage (offset == size); receiver re-creates file on next append
   SIZE=$(wc -c < data/events.jsonl 2>/dev/null || echo 0)
   OFF=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('data/triage-state.json','utf8')).offset||0)}catch(e){console.log(0)}")
