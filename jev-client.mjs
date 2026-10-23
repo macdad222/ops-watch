@@ -71,7 +71,7 @@ export async function jevClassifyClusters(state, clusters, { cfg, gate = null, e
       const fam = examples?.families?.[f] || examples?.families?.other;
       if (fam) stateEx[f] = fam;
     }
-    const callState = stateEx && Object.keys(stateEx).length ? { ...state, examples: stateEx } : state;
+    const callState = { ...(stateEx && Object.keys(stateEx).length ? { ...state, examples: stateEx } : state), clusters: chunk.items };   // per-chunk state: ONLY this chunk's clusters (full-state input blew Jev's input limit → max_tokens_exceeded on every call)
     const questions = {};
     chunk.items.forEach((c, i) => { questions[`q${i}`] = choiceQuestion(c); });
     const t0 = Date.now();
