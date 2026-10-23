@@ -7,9 +7,9 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, renameSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadOpsConfig, isQuietHoursCT, ctWallTime } from './lib.mjs';
+import { loadOpsConfig, isQuietHoursCT, ctWallTime, scrub } from './lib.mjs';
 import { sendTelegram, pingMessage, feedbackKeyboard } from './notify.mjs';
-import { scrub } from './lib.mjs';
+import { esc } from './assess.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.OPSWATCH_DATA_DIR || join(HERE, 'data');
@@ -68,10 +68,10 @@ export async function runDigest({ cfg, send = sendTelegram, now = Date.now(), fo
   const lines = [`📬 <b>ops-watch digest</b> — ${today} CT · ${all.length} item(s)`];
   shown.forEach((it, i) => {
     const icon = it.kind === 'shadow-ping' ? '🟠' : it.kind === 'shadow-unsure' ? '🟡' : '▫️';
-    lines.push(`${icon} <code>#${pingId}.${i + 1}</code> ${it.source}/${it.program || '?'} ×${it.count} — <i>${it.reason}</i>\n   <code>${scrub(String(it.sample)).slice(0, 140)}</code>`);
+    lines.push(`${icon} <code>#${esc(pingId)}.${i + 1}</code> ${esc(it.source)}/${esc(it.program || '?')} ×${it.count} — <i>${esc(it.reason)}</i>\n   <code>${esc(scrub(String(it.sample)).slice(0, 140))}</code>`);
   });
   if (rest > 0) lines.push(`➕ +${rest} more — full detail in held.jsonl / shadow ledger`);
-  lines.push(`<i>Feedback: 👍 useful · 👎 noise · 🔕 mute 7d · ➕ should have pinged — or reply "ow missed ${pingId}.1"</i>`);
+  lines.push(`<i>Feedback: 👍 useful · 👎 noise · 🔕 mute 7d · ➕ should have pinged — or reply "ow missed ${esc(pingId)}.1"</i>`);
   const r = await send(lines.join('\n'), { replyMarkup: feedbackKeyboard(pingId, { withMissed: true }) });
   const messageId = r?.result?.message_id ?? null;
   try { mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
