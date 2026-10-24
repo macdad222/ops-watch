@@ -183,3 +183,63 @@ test('quiet hours CT: 01:30 CT quiet, 12:35 CT not, boundaries', () => {
   assert.equal(lib.isQuietHoursCT(cfg, new Date('2026-10-23T05:59:00Z')), true);  // 00:59 CDT
   assert.equal(lib.isQuietHoursCT(cfg, new Date('2026-10-23T11:00:00Z')), false); // 06:00 CDT boundary (end exclusive)
 });
+
+// ── Buzz relay known-hum (2026-10-24) ────────────────────────────────────────
+function mkBuzzCluster(rawLines, program = 'buzz-prod-relay-1') {
+  return {
+    sig: 'buzzsig', count: rawLines.length, source: 'loki', program, host: 'agent-server',
+    distinct_users: 0, distinct_ips: 1, first_seen: 'x', last_seen: 'x',
+    samples: rawLines.slice(0, 3),
+    events: rawLines.map(raw => ({ raw, fields: {} })),
+  };
+}
+const buzzRaw = (message, fields = {}) =>
+  JSON.stringify({ timestamp: '2026-10-24T21:03:07Z', level: 'INFO', message, target: 'buzz_relay::connection', ...fields });
+
+test('buzz relay lifecycle churn → deterministic hum (held, not pinged)', () => {
+  const honey = {};
+  // each observed lifecycle message type → P3
+  for (const raw of [
+    buzzRaw('WebSocket connection closed', { conn_id: 'c-1', addr: '192.168.5.50:49232' }),
+    buzzRaw('WebSocket connection established', { conn_id: 'c-2', addr: '192.168.5.50:49240' }),
+    buzzRaw('3 missed pongs — closing connection', { level: 'WARN' }),
+    buzzRaw('NIP-42 auth successful', { conn_id: 'c-3', pubkey: 'd52d69fc' }),
+    buzzRaw('Event ingested via pipeline', { event_id: 'e-1', kind: 30003, target: 'buzz_relay::handlers::ingest' }),
+    buzzRaw('HTTP bridge request', { pubkey: 'd52d69fc', route: '/events', status: 200, accepted: true, target: 'buzz_relay::api::bridge' }),
+  ]) {
+    const v = lib.deterministicVerdict(mkBuzzCluster([raw]), honey);
+    assert.equal(v.level, 'P3', `expected hum for: ${raw.slice(0, 80)}`);
+    assert.match(v.why, /buzz relay/);
+  }
+  // mixed all-lifecycle cluster → hum
+  const v = lib.deterministicVerdict(mkBuzzCluster([
+    buzzRaw('WebSocket connection established', { conn_id: 'c-4' }),
+    buzzRaw('WebSocket connection closed', { conn_id: 'c-4' }),
+  ]), honey);
+  assert.equal(v.level, 'P3');
+});
+
+test('buzz relay errors still surface (no hum)', () => {
+  const honey = {};
+  // ERROR-level line → not hum
+  let v = lib.deterministicVerdict(mkBuzzCluster([buzzRaw('WebSocket connection closed', { level: 'ERROR' })]), honey);
+  assert.notEqual(v.level, 'P3');
+  // failed bridge request (accepted:false) → not hum
+  v = lib.deterministicVerdict(mkBuzzCluster([buzzRaw('HTTP bridge request', { route: '/events', status: 500, accepted: false })]), honey);
+  assert.notEqual(v.level, 'P3');
+  // non-2xx bridge status → not hum
+  v = lib.deterministicVerdict(mkBuzzCluster([buzzRaw('HTTP bridge request', { route: '/events', status: 429, accepted: false })]), honey);
+  assert.notEqual(v.level, 'P3');
+  // mixed cluster with one error line → whole cluster surfaces
+  v = lib.deterministicVerdict(mkBuzzCluster([
+    buzzRaw('WebSocket connection established', { conn_id: 'c-5' }),
+    buzzRaw('handler panicked', { level: 'ERROR', target: 'buzz_relay::handlers' }),
+  ]), honey);
+  assert.notEqual(v.level, 'P3');
+  // other programs with the same text are unaffected
+  v = lib.deterministicVerdict(mkBuzzCluster([buzzRaw('WebSocket connection closed')], 'some-other-app'), honey);
+  assert.notEqual(v.level, 'P3');
+  // honeytoken still beats buzz hum (P0 checked first)
+  v = lib.deterministicVerdict(mkBuzzCluster([buzzRaw('WebSocket connection closed', { note: 'HONEYTOKEN-canary-x' })]), { strings: ['HONEYTOKEN-canary-x'] });
+  assert.equal(v.level, 'P0');
+});

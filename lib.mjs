@@ -228,6 +228,29 @@ export function isQuietHoursCT(cfg, date = new Date()) {
   return t >= start && t < end; // start inclusive, end exclusive
 }
 
+// ── Buzz relay known-hum (2026-10-24, Chris-approved) ────────────────────────
+// buzz-prod-relay-1 (ghcr.io/block/buzz on .110) logs per-connection lifecycle/success
+// lines that each carry a unique conn_id/event_id/pubkey — they NEVER repeat verbatim,
+// so the generic repeat-hum detector never fires and Jev rates every line "novel"
+// → endless P2 pings (19 on 2026-10-24 alone). Treat the observed lifecycle set as
+// deterministic hum. Safety: triage.mjs runs appRulesVerdict FIRST, so any buzz error
+// burst (rules.json detected-error-burst → P1) still pings; and any ERROR-level,
+// failed-status, or non-2xx line disqualifies its whole cluster from hum here.
+// Matched strings are the exact messages observed in events.jsonl on 2026-10-24
+// (inner-JSON form; \\? tolerates both raw and re-escaped encodings).
+const BUZZ_PROGRAM_RE = /^buzz-prod-relay/;
+const BUZZ_HUM_LINE_RE =
+  /\\?"message\\?":\\?"(?:WebSocket connection closed|WebSocket connection established|NIP-42 auth successful|Event ingested via pipeline)|[0-9]+ missed pongs[^"\\]*closing connection/;
+const BUZZ_BRIDGE_OK_RE = /\\?"message\\?":\\?"HTTP bridge request\\?"/;
+const BUZZ_BRIDGE_2XX_RE = /\\?"status\\?":2/;
+const BUZZ_ERROR_GUARD_RE = /level\\?":\\?"(?:ERROR|error)|panic|fatal|traceback|\\?"accepted\\?":false/i;
+function buzzHumLine(raw) {
+  if (!raw || BUZZ_ERROR_GUARD_RE.test(raw)) return false;
+  if (BUZZ_HUM_LINE_RE.test(raw)) return true;
+  // HTTP bridge access log: hum only successful (2xx, accepted) requests
+  return BUZZ_BRIDGE_OK_RE.test(raw) && BUZZ_BRIDGE_2XX_RE.test(raw);
+}
+
 // ── Deterministic severity layer — ALWAYS overrides Jev ─────────────────────
 // P0 EMERGENCY (honeytoken/IOC) and P1 DETERMINISTIC-PING beats any Jev verdict.
 // Jev blocking only ever applies to events this layer scored low.
@@ -242,6 +265,13 @@ export function deterministicVerdict(cluster, honey) {
     return { level: 'P0', why: `canary domain lookup: ${d}` };
   for (const ioc of honey.iocs || []) if (lowText.includes(String(ioc).toLowerCase()))
     return { level: 'P0', why: `IOC match: ${ioc}` };
+
+  // Buzz relay lifecycle churn → known hum (held, digest-visible, never pinged).
+  // Any error-level/failed line in the cluster disqualifies it (see BUZZ comment above).
+  if (BUZZ_PROGRAM_RE.test(cluster.program || '') &&
+      (cluster.events || []).length > 0 &&
+      cluster.events.every(ev => buzzHumLine(ev.raw || '')))
+    return { level: 'P3', why: 'buzz relay lifecycle churn (known hum)' };
 
   if (cluster.fg && /config|update/.test(cluster.fg.action || '') ) 
     return { level: 'P1', why: `firewall config change (action=${cluster.fg.action})` };
