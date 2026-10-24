@@ -111,24 +111,26 @@ test('send-path failure: lastP1 unchanged, no pings.jsonl row, items queued to d
   assert.ok(q.every(r => JSON.parse(r).reason === 'telegram-send-failed'));
 });
 
-test('send-path cap: 14 pings → 10 sent + summary line, 4 queued, only 10 marked', async () => {
+test('send-path cap: 14 cards → 10 card-messages sent + overflow line, 4 queued, only 10 marked', async () => {
   const pingState = { lastP1: {} };
-  const pings = Array.from({ length: 14 }, (_, i) => mkCluster(i));
-  let sentBody = '';
-  const okSend = async (body) => { sentBody = body; return { result: { message_id: 12345 } }; };
+  const pings = Array.from({ length: 14 }, (_, i) => mkCluster(i, { source: `src${i}`, program: `prog${i}` }));   // 14 distinct services → 14 cards
+  const sends = [];
+  const okSend = async (body) => { sends.push(body); return { result: { message_id: 12345 + sends.length } }; };
   const d = await triage.deliver(pings, { cfg: CFG, pingState, live: true, send: okSend, rateFn: worthFn });
   assert.equal(d.sent.length, 10);
   assert.equal(d.overCap.length, 4);
-  assert.ok(sentBody.includes('+4 more minor items'), 'plain summary line present');
-  assert.ok(sentBody.includes('8am digest'));
-  assert.ok(!sentBody.includes('ow noise'), 'old feedback footer gone');
-  assert.ok(!sentBody.includes('useful ·'), 'old feedback footer gone');
+  assert.equal(sends.length, 10, 'one message per card, capped');
+  assert.ok(sends.at(-1).includes('+4 more to check'), 'plain overflow line on last message');
+  assert.ok(sends.at(-1).includes('8am digest'));
+  assert.ok(!sends.some(b => b.includes('ow noise')), 'old feedback footer gone');
+  assert.ok(!sends.some(b => b.includes('useful ·')), 'old feedback footer gone');
+  assert.ok(sends.every(b => !b.includes('ops-watch —')), 'no message-level header');
   assert.equal(Object.keys(pingState.lastP1).length, 10, 'only delivered pings marked');
   const row = JSON.parse(readFileSync(join(TMP, 'pings.jsonl'), 'utf8').trim());
   assert.equal(row.kind, 'ping');
   assert.equal(row.items.length, 10);
-  assert.equal(row.message_id, 12345);
-  assert.ok(Array.isArray(row.cards), 'cards mapping recorded');
+  assert.ok(row.message_id != null);
+  assert.ok(Array.isArray(row.cards) && row.cards.length === 10, 'cards mapping recorded');
   const q = readFileSync(join(TMP, 'digest-queue.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(q.filter(r => r.reason === 'over-cap').length, 4);
 });

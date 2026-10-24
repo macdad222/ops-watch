@@ -19,7 +19,7 @@ const seed = (queue, shadow) => {
   writeFileSync(join(TMP, 'jev-v2-shadow.jsonl'), shadow.map(s => JSON.stringify(s)).join('\n') + (shadow.length ? '\n' : ''));
 };
 
-test('digest: shadow would-ping + queue items → cards, cap + "+N more", pings.jsonl row with cards, queue rotated', async () => {
+test('digest: shadow would-ping + queue items → body message (no buttons) + question messages with buttons, queue rotated', async () => {
   seed(
     Array.from({ length: 5 }, (_, i) => ({ ts: '2026-10-23T12:00:00Z', cycle_id: 'c', reason: 'jev-down', sig: `q${i}`, source: 'app', program: 'p', count: 2, sample: 's' })),
     [
@@ -27,20 +27,27 @@ test('digest: shadow would-ping + queue items → cards, cap + "+N more", pings.
       { ts: new Date(Date.now() - 3500000).toISOString(), cycle_id: 'c1', mode: 'shadow', sig: 'su1', source: 'app', program: 'x', count: 3, v2_decision: 'digest', v2_reason: 'uncertain (argmax=routine_noise)', v1_decision: 'hold', features: { samples: ['x'] }, probs: { routine_noise: 0.5 }, confidence: 0.4 },
     ],
   );
-  let sentBody = '', sentMarkup = null;
-  const r = await digest.runDigest({ cfg: CFG, force: true, rateFn: worthFn, send: async (body, opts) => { sentBody = body; sentMarkup = opts?.replyMarkup ?? null; return { result: { message_id: 777 } }; } });
+  const sends = [];
+  const r = await digest.runDigest({ cfg: CFG, force: true, rateFn: worthFn, send: async (body, opts) => { sends.push({ body, markup: opts?.replyMarkup ?? null }); return { result: { message_id: 777 + sends.length } }; } });
   assert.equal(r.sent, true);
-  assert.ok(sentBody.includes('SSH logins'), 'friendly name in card title');
-  assert.ok(sentBody.includes('+4 more minor items'), 'cap 3 → +4 more');
-  assert.ok(!sentBody.includes('ow missed'), 'old digest footer gone');
-  assert.ok(sentMarkup && sentMarkup.inline_keyboard.length >= 1 && sentMarkup.inline_keyboard.length <= 3, 'per-card buttons only, ≤ shown cards');
-  for (const row of sentMarkup.inline_keyboard) for (const b of row) assert.ok(b.callback_data.length <= 64, 'callback ≤64 bytes');
+  assert.equal(sends.length, 4, '1 body + 3 question messages');
+  assert.equal(sends[0].markup, null, 'digest BODY message carries NO buttons');
+  assert.ok(sends[0].body.includes('📬'), 'digest header on body');
+  assert.ok(sends[0].body.includes('+4 more minor items'), 'cap 3 → +4 more');
+  for (const s of sends.slice(1)) {
+    assert.ok(s.markup && s.markup.inline_keyboard.length === 1, 'each question message carries exactly one card\'s buttons');
+    assert.ok(s.body.includes('worth a look') || s.body.includes('needs attention'), 'question message is a full card');
+    for (const b of s.markup.inline_keyboard[0]) assert.ok(b.callback_data.length <= 64);
+  }
+  assert.ok(!sends[0].body.includes('ow missed'), 'old digest footer gone');
   const rows = readFileSync(join(TMP, 'pings.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   const drow = rows.find(x => x.kind === 'digest');
   assert.ok(drow, 'digest recorded in pings.jsonl');
   assert.equal(drow.items.length, 3);
-  assert.equal(drow.message_id, 777);
   assert.ok(Array.isArray(drow.cards) && drow.cards.length >= 1, 'cards mapping recorded');
+  const qcards = drow.cards.filter(c => c.question);
+  assert.equal(qcards.length, 3);
+  assert.ok(qcards.every(c => c.message_id != null && c.message_id !== drow.message_id), 'question cards have their OWN message_ids');
   assert.equal(existsSync(join(TMP, 'digest-queue.jsonl')), false, 'queue rotated after send');
 });
 
@@ -54,11 +61,13 @@ test('digest: question cap honored (7 borderline items, max_questions 5 → 5 bu
       v1_decision: 'hold', features: { samples: [`sample ${i}`] }, probs: { operational_fault: 0.7 }, confidence: 0.6,
     })),
   );
-  let sentMarkup = null;
-  const r = await digest.runDigest({ cfg: CFG5, force: true, rateFn: worthFn, send: async (body, opts) => { sentMarkup = opts?.replyMarkup ?? null; return { result: { message_id: 778 } }; } });
+  let sends = [];
+  const r = await digest.runDigest({ cfg: CFG5, force: true, rateFn: worthFn, send: async (body, opts) => { sends.push({ body, markup: opts?.replyMarkup ?? null }); return { result: { message_id: 778 + sends.length } }; } });
   assert.equal(r.sent, true);
   assert.equal(r.questions, 5, 'hard cap 5 questions/day');
-  assert.equal(sentMarkup.inline_keyboard.length, 5);
+  assert.equal(sends.length, 6, '1 body + 5 question messages');
+  assert.equal(sends.filter(s => s.markup && s.markup.inline_keyboard.length === 1).length, 5, 'buttons only on the 5 question messages');
+  assert.equal(sends[0].markup, null, 'body has no buttons');
 });
 
 test('digest: quiet hours → never sends', async () => {

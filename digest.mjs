@@ -20,7 +20,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadOpsConfig, isQuietHoursCT, ctWallTime, scrub } from './lib.mjs';
 import { sendTelegram } from './notify.mjs';
-import { groupItems, rateGroups, renderDigest } from './cards.mjs';
+import { groupItems, rateGroups, renderDigestMessages } from './cards.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.OPSWATCH_DATA_DIR || join(HERE, 'data');
@@ -175,9 +175,20 @@ export async function runDigest({ cfg, send = sendTelegram, now = Date.now(), fo
   }
   appendAutoLabelRows(preRows);
 
-  const rendered = renderDigest({ groups, pingId, questionKeys, dateLabel: today, overCount: rest });
-  const r = await send(rendered.body, { replyMarkup: rendered.keyboard });
+  const rendered = renderDigestMessages({ groups, pingId, questionKeys, dateLabel: today, overCount: rest });
+  // v3.1: body message WITHOUT buttons, then each question (≤ max_questions) as its own message
+  const r = await send(rendered.body.body);
   const messageId = r?.result?.message_id ?? null;
+  let qSends = 0;
+  for (const qm of rendered.questions) {
+    try {
+      const rq = await send(qm.body, { replyMarkup: qm.keyboard });
+      qm.card.message_id = rq?.result?.message_id ?? null;
+      qSends++;
+    } catch (e) {
+      console.error(`digest question send FAILED (${qm.card.title}): ${String(e && e.message || e).slice(0, 120)}`);
+    }
+  }
   try { mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
   const cardByKey = new Map(rendered.cards.map(c => [c.key, c]));
   appendFileSync(join(DATA_DIR, 'pings.jsonl'), JSON.stringify({
@@ -188,14 +199,14 @@ export async function runDigest({ cfg, send = sendTelegram, now = Date.now(), fo
         decision: it.reason, mode: it.kind === 'queued' ? 'v1' : 'shadow', probs: null, confidence: null,
         rating: g?.rating ?? null };
     }),
-    cards: rendered.cards.map(c => ({ card_id: c.card_id, key: c.key, title: c.title, rating: c.rating, sigs: c.sigs, item_ids: c.item_ids, question: c.question, qwen: c.qwen })),
-    auto_labels: { ignored: autoIgnored, pre: preRows.length },
+    cards: rendered.cards.map(c => ({ card_id: c.card_id, key: c.key, title: c.title, rating: c.rating, sigs: c.sigs, item_ids: c.item_ids, question: c.question, qwen: c.qwen, message_id: c.message_id ?? (c.question ? null : messageId) })),
+    auto_labels: { ignored: autoIgnored, pre: preRows.length, question_messages: qSends },
   }) + '\n');
   writeFileSync(stateP, JSON.stringify({ last_sent_date: today, ts: new Date(now).toISOString() }));
   // rotate the queue (consumed)
   const q = join(DATA_DIR, 'digest-queue.jsonl');
   if (existsSync(q)) { try { mkdirSync(join(DATA_DIR, 'processed'), { recursive: true }); renameSync(q, join(DATA_DIR, 'processed', `digest-queue-${Date.now()}.jsonl`)); } catch { /* keep */ } }
-  return { sent: true, ping_id: pingId, items: all.length, shown: shown.length, questions: questionKeys.size, message_id: messageId, autoIgnored, preLabeled: preRows.length };
+  return { sent: true, ping_id: pingId, items: all.length, shown: shown.length, questions: questionKeys.size, message_id: messageId, question_messages: qSends, autoIgnored, preLabeled: preRows.length };
 }
 
 // CLI: node digest.mjs --if-due   (ticker hook; exits silently unless due)

@@ -27,7 +27,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { normalizeLine, clusterEvents, deterministicVerdict, appRulesVerdict, buildLokiEvent, scrub, loadOpsConfig, isQuietHoursCT } from './lib.mjs';
 import { sendTelegram } from './notify.mjs';
-import { groupItems, rateGroups, renderPing, RANK, plainWhy } from './cards.mjs';   // v3 plain-English cards (folds assess.mjs in)
+import { groupItems, rateGroups, renderCardMessages, RANK, plainWhy } from './cards.mjs';   // v3.1 one card per message
 import { recordCycle } from './history.mjs';
 import { triageV2 } from './triage-v2.mjs';
 import { readFileSync as _rf } from 'node:fs';
@@ -224,58 +224,76 @@ export async function deliver(pingsRaw, { cfg, pingState, live = true, send = se
     }
   }
   const minRating = cfg.live_ping_min_rating;
-  const minRank = (minRating && minRating !== 'none' && minRating !== 'off') ? (RANK[minRating] ?? 0) : -1;
+  const divert = !!(minRating && minRating !== 'none' && minRating !== 'off');   // flag ON (default) = worth_a_look gate
   const pingGroups = [], routineGroups = [];
   for (const g of groups) {
-    if (RANK[g.rating ?? 'no_action'] < minRank && !g.hasP0P1) routineGroups.push(g);   // P0/P1 rule hits ALWAYS ping
-    else pingGroups.push(g);
+    if (g.rating === 'no_action' && !g.hasP0P1 && divert) {
+      routineGroups.push(g);   // P0/P1 rule hits ALWAYS ping; routine → digest (never a routine-only message)
+    } else {
+      if (!divert && g.rating === 'no_action' && !g.hasP0P1) g.rating = 'worth_a_look';   // flag OFF = ping everything (escape hatch)
+      pingGroups.push(g);
+    }
   }
   out.diverted = routineGroups;
   // routine groups → digest queue FIRST (never dropped, even when nothing else pings —
   // the old early-return-below silently discarded them when ALL groups diverted)
   if (routineGroups.length) appendDigestQueue(routineGroups.flatMap(g => g.items), 'routine-no-action', cycleId);
 
-  const pingItems = pingGroups.flatMap(g => g.items);
-  const rank = { P0: 0, P1: 1, P2: 2 };
-  pingItems.sort((a, b) => (rank[a.verdict.level] ?? 3) - (rank[b.verdict.level] ?? 3));
-  const capped = pingItems.slice(0, maxPer);
-  const overCap = pingItems.slice(maxPer);
-  out.overCap = overCap;
-  if (!capped.length && !overCap.length) return out;
-
-  // re-group the capped items for rendering; ratings carried over from the rated set
-  const ratedByKey = new Map(groups.map(g => [g.key, g]));
-  const shownGroups = groupItems(capped, { cfg, windowMin }).map(g => {
-    const r = ratedByKey.get(g.key);
-    if (r) return { ...g, rating: r.rating, headline: r.headline, next_step: r.next_step, confidence: r.confidence, qwen: r.qwen, fallback: r.fallback };
-    return { ...g, rating: g.hasP0P1 ? 'needs_attention' : 'no_action', headline: plainWhy(g.why, { count: g.totalCount, windowMin: g.windowMin }), next_step: '', confidence: 0, qwen: false, fallback: true };
-  });
+  // v3.1: cap = card MESSAGES (pings.max_per_cycle); needs_attention cards first, then biggest.
+  // Each action card = its own Telegram message with its own 3 buttons (no button/reply ambiguity).
+  const rankedCards = [...pingGroups].sort((a, b) => (RANK[b.rating] - RANK[a.rating]) || (b.totalCount - a.totalCount));
+  const shownGroups = rankedCards.slice(0, maxPer);
+  const overflowGroups = rankedCards.slice(maxPer);
+  const overflowItems = overflowGroups.flatMap(g => g.items);
+  out.overCap = overflowItems;
   out.pingId = Math.random().toString(36).slice(2, 6);
   const decidingMode = cfg.triage_mode === 'v2' ? 'v2' : 'v1';
-  const rendered = renderPing({ groups: shownGroups, pingId: out.pingId, overCap, test: process.env.OPSWATCH_TEST === '1', includeRoutine: minRank < 0 });
-  const items = capped.map((x, i) => ({ ...x, item_id: `${out.pingId}.${i + 1}` }));
-  // card_id ↔ sig mapping (label.mjs resolves buttons/replies through this)
+  const rendered = renderCardMessages({ groups: shownGroups, pingId: out.pingId, overflowCount: overflowItems.length, routineGroups, test: process.env.OPSWATCH_TEST === '1' });
+  if (!rendered.messages.length && !overflowItems.length) return out;
+
+  // item_ids assigned across sent cards in order; card_id ↔ sig/item_id mapping for label.mjs
+  const items = [];
+  const cardItems = new Map();
+  let n = 0;
+  for (const g of shownGroups) {
+    const gi = g.items.map(x => ({ ...x, item_id: `${out.pingId}.${++n}`, __cardKey: g.key }));
+    cardItems.set(g.key, gi);
+    items.push(...gi);
+  }
   const idBySig = new Map(items.map(x => [x.cluster.sig, x.item_id]));
+  const failedKeys = new Set();
+  for (let i = 0; i < rendered.messages.length; i++) {
+    const m = rendered.messages[i];
+    try {
+      const r = await send(m.body, { replyMarkup: m.keyboard });   // ONE card per message
+      m.card.message_id = r?.result?.message_id ?? null;
+      // mark-sent + repeat state ONLY after Telegram ok — a failed send must never mute a sig for 4h
+      for (const x of (cardItems.get(m.card.key) || [])) pingState.lastP1[x.cluster.sig] = now;
+    } catch (e) {
+      failedKeys.add(m.card.key);
+      console.error(`telegram card send FAILED (${m.card.title}): ${String(e && e.message || e).slice(0, 150)}`);
+    }
+  }
+  // card copies for the ledger — built AFTER the send loop so per-card message_ids are in
   const cards = rendered.cards.map(c => ({ ...c, item_ids: c.sigs.map(s => idBySig.get(s)).filter(Boolean) }));
-  try {
-    const r = await send(rendered.body, { replyMarkup: rendered.keyboard });
-    out.messageId = r?.result?.message_id ?? null;
-    // mark-sent + ledger ONLY after Telegram ok — a failed send must never mute a sig for 4h
-    for (const x of capped) pingState.lastP1[x.cluster.sig] = now;
+  const sentCards = cards.filter(c => !failedKeys.has(c.key));
+  const sentItems = items.filter(x => !failedKeys.has(x.__cardKey));
+  const failedItems = items.filter(x => failedKeys.has(x.__cardKey));
+  if (sentItems.length) {
     appendPingsRow({
-      ts: new Date().toISOString(), ping_id: out.pingId, message_id: out.messageId, kind: 'ping', mode: decidingMode,
-      items: items.map((x, i) => ({ item_id: `${out.pingId}.${i + 1}`, sig: x.cluster.sig,
+      ts: new Date().toISOString(), ping_id: out.pingId, message_id: sentCards[0]?.message_id ?? null, kind: 'ping', mode: decidingMode,
+      items: sentItems.map(x => ({ item_id: x.item_id, sig: x.cluster.sig,
         source: x.cluster.source, program: x.cluster.program || '', level: x.verdict.level,
         decision: x.verdict.why, mode: decidingMode, probs: null, confidence: null })),
-      cards,
+      cards: sentCards,
     });
-    out.sent = items;
-    if (overCap.length) appendDigestQueue(overCap, 'over-cap', cycleId);   // visible in digest, NOT marked pinged
-  } catch (e) {
-    out.sendFailed = [...capped, ...overCap];
-    appendDigestQueue(out.sendFailed, 'telegram-send-failed', cycleId);
-    console.error(`telegram ping FAILED: ${String(e && e.message || e).slice(0, 150)}`);
+    out.sent = sentItems;
   }
+  if (failedItems.length) {
+    out.sendFailed = failedItems;
+    appendDigestQueue(failedItems, 'telegram-send-failed', cycleId);
+  }
+  if (overflowItems.length) appendDigestQueue(overflowItems, 'over-cap', cycleId);   // visible in digest, NOT marked pinged
   return out;
 }
 

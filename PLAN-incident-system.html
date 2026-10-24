@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Detailed audit and phased enhancement roadmap for ops-watch: reliable ingestion, durable delivery, incident management, and evidence-backed investigation.">
+<title>ops-watch: Trustworthy Incident Intelligence Plan</title>
+<style>
+:root{--ink:#172335;--muted:#5e6b7d;--line:#dce3ec;--paper:#fff;--bg:#f3f6fa;--accent:#1565c0;--accent-dark:#0b417e;--code:#edf2f7;--note:#eef6ff;--warn:#fff7e6;--max:1120px}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}header{background:linear-gradient(125deg,#102b4c,#165e98);color:white;padding:56px 28px 44px}header .inner,main,footer{max-width:var(--max);margin:auto}header h1{font-size:clamp(1.9rem,4vw,3.25rem);line-height:1.13;letter-spacing:-.035em;max-width:950px;margin:0 0 18px}header .eyebrow{text-transform:uppercase;letter-spacing:.15em;font-size:.76rem;font-weight:750;color:#b9defc;margin-bottom:14px}header .subtitle{font-size:1.08rem;color:#e0effd;max-width:850px;margin:0}.status{display:inline-block;background:#d9efff;color:#103b62;border-radius:999px;padding:4px 12px;font-size:.83rem;font-weight:650;margin-top:24px}.layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:34px;padding:36px 28px 60px}nav{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px 16px;font-size:.84rem;line-height:1.42}nav h2{font-size:1rem;margin:0 0 10px}nav ol{list-style:none;padding-left:0;margin:0}nav ol ol{padding-left:12px;margin:4px 0 8px;border-left:1px solid var(--line)}nav ol ol ol{display:none}nav li{margin:5px 0}nav a{color:#40536c;text-decoration:none}nav a:hover{color:var(--accent);text-decoration:underline}article{min-width:0;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:38px clamp(22px,4vw,54px);box-shadow:0 4px 20px #1a355008}h2,h3,h4{line-height:1.28;letter-spacing:-.018em;position:relative}h2{font-size:1.75rem;margin:2.3em 0 .8em;padding-top:.7em;border-top:2px solid var(--line)}h3{font-size:1.25rem;margin:1.8em 0 .55em;color:#1c426a}h4{font-size:1.05rem;margin:1.5em 0 .5em}h2 .anchor,h3 .anchor,h4 .anchor{opacity:0;margin-left:9px;font-size:.8em;color:var(--accent);text-decoration:none}h2:hover .anchor,h3:hover .anchor,h4:hover .anchor{opacity:1}p{margin:.75em 0}a{color:var(--accent)}strong{font-weight:700}li{margin:.38em 0}ul,ol{padding-left:1.7em}hr{border:0;border-top:1px solid var(--line);margin:32px 0}code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;background:var(--code);border-radius:4px;padding:.13em .35em;overflow-wrap:anywhere}pre{background:#142135;color:#e7edf5;border-radius:9px;padding:19px;overflow:auto;line-height:1.48;font-size:.82rem}pre code{background:none;padding:0;color:inherit;overflow-wrap:normal}.table-wrap{overflow-x:auto;margin:20px 0}table{border-collapse:collapse;width:100%;font-size:.9rem;line-height:1.5}th{text-align:left;background:#edf3fa;color:#193d61;font-weight:700}th,td{padding:11px 13px;border:1px solid var(--line);vertical-align:top}tbody tr:nth-child(even){background:#fafbfd}blockquote{margin:22px 0;padding:14px 20px;border-left:4px solid var(--accent);border-radius:0 8px 8px 0;background:var(--note);color:#25415f}blockquote p{margin:.35em 0}footer{padding:0 28px 36px;text-align:center;color:var(--muted);font-size:.84rem}.doc-note{background:#f0f6fc;border:1px solid #cfdfef;border-radius:10px;padding:16px 20px;margin:0 0 26px}.doc-note p{margin:.3em 0}.top-link{display:inline-block;margin-top:34px;font-size:.84rem}.nowrap{white-space:nowrap}
+@media(max-width:900px){.layout{display:block;padding:20px 14px}nav{position:relative;top:0;max-height:320px;margin-bottom:22px}article{padding:26px 20px}header{padding:38px 22px}nav ol ol ol{display:block}}
+@media print{body{background:white;font-size:10.5pt;color:#111}header{background:none;color:#111;padding:20px 0;border-bottom:3px solid #173f67}header .eyebrow,header .subtitle{color:#333}.status{color:#111;border:1px solid #999}.layout{display:block;padding:0}nav{display:none}article{border:0;box-shadow:none;padding:0;max-width:none}h2{break-after:avoid;page-break-after:avoid}h3,h4{break-after:avoid}pre,.table-wrap,blockquote{break-inside:avoid}pre{white-space:pre-wrap;color:#111;background:#f5f5f5}a{color:inherit;text-decoration:none}footer{padding:20px 0}.top-link{display:none}}
+</style>
+</head>
+<body>
+<header id="top"><div class="inner">
+<div class="eyebrow">Technical review &amp; implementation roadmap</div>
+<h1>ops-watch: Trustworthy Incident Intelligence Plan</h1>
+<p class="subtitle">From log-to-card classification to a trustworthy, measurable incident system—without replacing the existing Loki, Jev, local-model, and Telegram foundation.</p>
+<span class="status">Proposal for Chris review · 2026-10-23</span>
+</div></header>
+<div class="layout">
+<nav aria-label="Table of contents"><h2>Contents</h2><ol><li><a href="#section-1-1-executive-recommendation">1. Executive recommendation</a><ol><li><a href="#section-2-what-not-to-build-yet">What not to build yet</a></li></ol></li><li><a href="#section-3-2-audit-baseline-and-evidence-quality">2. Audit baseline and evidence quality</a><ol><li><a href="#section-4-reviewed">Reviewed</a></li><li><a href="#section-5-important-version-distinction">Important version distinction</a></li><li><a href="#section-6-verification">Verification</a></li><li><a href="#section-7-scope-limitation">Scope limitation</a></li></ol></li><li><a href="#section-8-3-what-is-already-good-and-should-be-retained">3. What is already good and should be retained</a></li><li><a href="#section-9-4-findings-ranked-by-consequence">4. Findings, ranked by consequence</a><ol><li><a href="#section-10-p0-restore-the-integrity-promise-before-adding-intelligence">P0 — restore the integrity promise before adding intelligence</a><ol><li><a href="#section-11-f1-active-v1-shadow-mode-can-consume-backlog-without-classifying-it">F1. Active v1/shadow mode can consume backlog without classifying it</a></li><li><a href="#section-12-f2-loki-tailing-loses-data-under-ordinary-edge-cases">F2. Loki tailing loses data under ordinary edge cases</a></li><li><a href="#section-13-f3-some-deterministic-rules-do-not-match-the-normalized-event-shapes-they-receive">F3. Some deterministic rules do not match the normalized event shapes they receive</a></li><li><a href="#section-14-f4-digest-and-live-delivery-are-not-durable-end-to-end">F4. Digest and live delivery are not durable end to end</a></li></ol></li><li><a href="#section-15-p1-make-failures-observable-and-the-system-operable">P1 — make failures observable and the system operable</a><ol><li><a href="#section-16-f5-collection-and-pipeline-failures-are-mostly-log-only">F5. Collection and pipeline failures are mostly log-only</a></li><li><a href="#section-17-f6-state-persistence-and-compaction-have-avoidable-failure-modes">F6. State persistence and compaction have avoidable failure modes</a></li><li><a href="#section-18-f7-documentation-and-runtime-authority-have-drifted">F7. Documentation and runtime authority have drifted</a></li></ol></li><li><a href="#section-19-p2-improve-judgment-quality-only-after-the-foundation-is-measurable">P2 — improve judgment quality only after the foundation is measurable</a><ol><li><a href="#section-20-f8-the-system-has-classifiers-but-not-a-durable-concept-of-an-incident">F8. The system has classifiers, but not a durable concept of an incident</a></li><li><a href="#section-21-f9-feedback-is-not-yet-a-reliable-learning-dataset">F9. Feedback is not yet a reliable learning dataset</a></li></ol></li></ol></li><li><a href="#section-22-5-target-architecture">5. Target architecture</a><ol><li><a href="#section-23-core-design-decisions">Core design decisions</a></li><li><a href="#section-24-storage-choice-small-sqlite-not-a-new-platform">Storage choice: small SQLite, not a new platform</a></li></ol></li><li><a href="#section-25-6-implementation-phases">6. Implementation phases</a></li><li><a href="#section-26-phase-0-freeze-a-known-baseline-and-create-the-replay-harness">Phase 0 — Freeze a known baseline and create the replay harness</a><ol><li><a href="#section-27-tasks">Tasks</a></li><li><a href="#section-28-new-changed-files">New/changed files</a></li><li><a href="#section-29-acceptance">Acceptance</a></li><li><a href="#section-30-verification">Verification</a></li></ol></li><li><a href="#section-31-phase-1-correct-ingestion-deterministic-coverage-and-bounded-flood-behavior">Phase 1 — Correct ingestion, deterministic coverage, and bounded flood behavior</a><ol><li><a href="#section-32-tasks">Tasks</a></li><li><a href="#section-33-acceptance">Acceptance</a></li><li><a href="#section-34-verification">Verification</a></li></ol></li><li><a href="#section-35-phase-2-durable-delivery-digest-recovery-and-real-health-monitoring">Phase 2 — Durable delivery, digest recovery, and real health monitoring</a><ol><li><a href="#section-36-tasks">Tasks</a></li><li><a href="#section-37-quiet-hours-requirement">Quiet-hours requirement</a></li><li><a href="#section-38-acceptance">Acceptance</a></li><li><a href="#section-39-verification">Verification</a></li></ol></li><li><a href="#section-40-phase-3-replace-repetitive-cards-with-an-incident-lifecycle">Phase 3 — Replace repetitive cards with an incident lifecycle</a><ol><li><a href="#section-41-incident-identity-and-policy">Incident identity and policy</a></li><li><a href="#section-42-initial-deterministic-correlations">Initial deterministic correlations</a></li><li><a href="#section-43-card-contract">Card contract</a></li><li><a href="#section-44-feedback-actions">Feedback/actions</a></li><li><a href="#section-45-baselines">Baselines</a></li><li><a href="#section-46-acceptance">Acceptance</a></li><li><a href="#section-47-verification">Verification</a></li></ol></li><li><a href="#section-48-phase-4-evidence-backed-read-only-investigation">Phase 4 — Evidence-backed, read-only investigation</a><ol><li><a href="#section-49-first-three-investigation-adapters">First three investigation adapters</a></li><li><a href="#section-50-evidence-playbook-contract">Evidence playbook contract</a></li><li><a href="#section-51-acceptance">Acceptance</a></li><li><a href="#section-52-verification">Verification</a></li></ol></li><li><a href="#section-53-phase-5-evaluation-decision-consolidation-and-responsible-learning">Phase 5 — Evaluation, decision consolidation, and responsible learning</a><ol><li><a href="#section-54-tasks">Tasks</a></li><li><a href="#section-55-proposed-promotion-gates">Proposed promotion gates</a></li></ol></li><li><a href="#section-56-phase-6-complete-the-efficiency-work-and-simplify-operations">Phase 6 — Complete the efficiency work and simplify operations</a><ol><li><a href="#section-57-tasks">Tasks</a></li></ol></li><li><a href="#section-58-7-metrics-and-targets">7. Metrics and targets</a></li><li><a href="#section-59-8-file-level-implementation-map">8. File-level implementation map</a></li><li><a href="#section-60-9-rollout-and-rollback-strategy">9. Rollout and rollback strategy</a></li><li><a href="#section-61-10-effort-and-priority">10. Effort and priority</a></li><li><a href="#section-62-11-decisions-needed-from-chris-before-implementation">11. Decisions needed from Chris before implementation</a></li><li><a href="#section-63-12-reproduction-notes-from-this-audit">12. Reproduction notes from this audit</a></li></ol><p><a href="#top">↑ Back to top</a></p></nav>
+<main><article>
+<div class="doc-note"><p><strong>Status:</strong> proposal; no implementation or deployment authorized by this document.</p><p><strong>Scope:</strong> complete ops-watch source/docs/test review plus selected deployed-state inspection.</p></div>
+<p><strong>Date:</strong> 2026-10-23 (audit completed ~22:25 CDT)  </p>
+<p><strong>Status:</strong> proposal for Chris review; no implementation or deployment authorized by this document  </p>
+<p><strong>Scope:</strong> <code>projects/ops-watch/</code>, its documented ingestion/feedback boundaries, deployed container health, and selected live ledgers on <code>.110</code>  </p>
+<p><strong>Recommended outcome:</strong> evolve ops-watch from a log-to-card classifier into a reliable, measurable incident system without replacing Loki, Jev, the local model lane, Telegram, or the existing feedback flow</p>
+<hr>
+<h2 id="section-1-1-executive-recommendation">1. Executive recommendation<a class="anchor" href="#section-1-1-executive-recommendation" aria-label="Link to this section">#</a></h2>
+<p>The dramatic enhancement is <strong>not another model or a dashboard</strong>.</p>
+<p>Build this, in order:</p>
+<ol>
+<li><strong>A trustworthy event and delivery pipeline.</strong> Every accepted event has a durable, queryable outcome. Backlogs, floods, malformed output, service failures, and restarts produce visible state rather than silent gaps.</li>
+<li><strong>An incident engine.</strong> Related observations become one persistent incident with a lifecycle: open, acknowledged, escalated, recovered, and resolved. Stop representing every five-minute log batch as a new problem.</li>
+<li><strong>Evidence-backed investigation.</strong> For a small allowlisted set of services, gather read-only health and log evidence before explaining the incident. Separate observations, assessment, and unknowns. Never let a model run arbitrary commands.</li>
+<li><strong>Measured learning.</strong> Attach feedback to the exact incident and decision, measure useful-alert rate and missed-event fixtures, and promote model changes only after replay and shadow evaluation. Do not train an ML filter merely because 300 rows exist.</li>
+</ol>
+<p>The user-facing result should be:</p>
+<blockquote>
+<p><strong>What is affected, why this matters now, what evidence supports it, what should happen next, and whether the alert actually reached anyone.</strong></p>
+</blockquote>
+<p>Keep Loki as the high-fidelity log archive. Keep deterministic P0/P1 policy above AI. Keep Jev for ambiguous classification until a replacement earns promotion. Keep Qwen for explanation, not as an unaccountable second decision-maker. Keep Telegram and the existing Jarvon feedback route.</p>
+<h3 id="section-2-what-not-to-build-yet">What not to build yet<a class="anchor" href="#section-2-what-not-to-build-yet" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>No Datadog-sized rewrite or new microservice fleet.</li>
+<li>No dashboard before incident state and evidence are trustworthy. A CLI plus existing Grafana/Loki is enough initially.</li>
+<li>No ML auto-suppression with the present feedback set.</li>
+<li>No arbitrary AI-generated shell commands, firewall changes, container restarts, or automated remediation.</li>
+<li>No cloud-model dependency or additional paid API lane.</li>
+<li>No Telegram polling/webhook against the shared bot token.</li>
+</ul>
+<hr>
+<h2 id="section-3-2-audit-baseline-and-evidence-quality">2. Audit baseline and evidence quality<a class="anchor" href="#section-3-2-audit-baseline-and-evidence-quality" aria-label="Link to this section">#</a></h2>
+<h3 id="section-4-reviewed">Reviewed<a class="anchor" href="#section-4-reviewed" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>All first-party runtime JavaScript, Python shippers, shell scripts, rules/configuration, Docker/deployment files, documentation, examples/training scripts, and tests in <code>projects/ops-watch/</code>.</li>
+<li>Existing proposals: <code>PLAN-efficiency.md</code>, <code>PLAN-qwen-assess.md</code>, <code>PLAN-v1.md</code>, <code>DEPLOY-PLAN.md</code>, and <code>docs/v2-design.md</code>.</li>
+<li>Current working-tree diff and repository history for this project.</li>
+<li>Running container/process state, selected state files, log tails, queue/label/ping aggregates, and deployed file hashes on <code>.110</code>.</li>
+<li>Existing decisions in memory, including the efficiency-plan approval gate and ops-watch feedback protocol.</li>
+</ul>
+<p>The external FortiGate collector is a dependency, not part of this repository; its full implementation was not re-audited here. Its edge-routing change must therefore have its own fixture/replay review before deployment.</p>
+<h3 id="section-5-important-version-distinction">Important version distinction<a class="anchor" href="#section-5-important-version-distinction" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>The running image reports revision <code>17ea0a25411ed0d0c22ab3dc0e779c058403db14</code>.</li>
+<li>The local working tree contains uncommitted v3.1 work in <code>triage.mjs</code>, <code>cards.mjs</code>, <code>digest.mjs</code>, <code>label.mjs</code>, <code>gen-card-examples.mjs</code>, and three test files.</li>
+<li>The deployed <code>triage.mjs</code>, <code>cards.mjs</code>, and <code>digest.mjs</code> hashes differ from the working tree. Findings below identify the common path or the affected version; the audit does not pretend the two are identical.</li>
+<li>This review made no code/configuration/deployment changes and sent no test alerts. It only adds this plan file.</li>
+</ul>
+<h3 id="section-6-verification">Verification<a class="anchor" href="#section-6-verification" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Explicit six-file Node test run: <strong>43 passed, 0 failed, 1 skipped</strong>. The skipped test is the external Jev contract test.</li>
+<li><code>git diff --check</code> on the pre-existing ops-watch changes reported no whitespace errors.</li>
+<li>Live snapshot: container was up with zero restarts and about 16 MiB memory in use, but there is <strong>no Docker healthcheck</strong>. A running container therefore does not prove that collection, triage, or delivery works.</li>
+<li>Live snapshot: <code>data/</code> about 3.8 GiB; logs about 85 MiB. At one sampled point, the 41 MiB event file was fully consumed; this is only a point-in-time observation, not a coverage guarantee.</li>
+<li>Live feedback: five non-auto labels, all <code>useful</code>. This is not enough to estimate classifier quality or train a useful/noise model.</li>
+<li>Live delivery snapshot: <code>pings.jsonl</code> had 26 ping rows and zero digest rows. <code>digest-queue.jsonl</code> contained 4,864 rows (1.33 MB): 2,970 routine, 1,046 over-cap, and 848 previously marked Telegram-send-failed. Counts are a snapshot, not a lifetime total.</li>
+<li>Live digest log contains Telegram <code>400</code> failures: <code>Unsupported start tag "info"</code>. The failed body send leaves the queue pending, explaining why the queue continues to grow.</li>
+</ul>
+<h3 id="section-7-scope-limitation">Scope limitation<a class="anchor" href="#section-7-scope-limitation" aria-label="Link to this section">#</a></h3>
+<p>The existing unit tests are useful but mostly mock the network and exercise components independently. Passing tests do not establish production event coverage or end-to-end Telegram delivery. The reproductions below used synthetic events and temporary state directories unless explicitly identified as live inspection.</p>
+<hr>
+<h2 id="section-8-3-what-is-already-good-and-should-be-retained">3. What is already good and should be retained<a class="anchor" href="#section-8-3-what-is-already-good-and-should-be-retained" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><strong>The overall boundary is right:</strong> raw telemetry goes to Loki; ops-watch is supposed to be the signal layer.</li>
+<li><strong>Deterministic security invariants belong above AI.</strong> Honeytoken/IOC P0 checks scan the cluster's retained raw events (<code>lib.mjs:234-244</code>).</li>
+<li><strong>The bounded byte-range reader is a good recovery from the 512 MB crash.</strong> It reads complete lines and carries a torn tail forward (<code>triage.mjs:322-341</code>).</li>
+<li><strong>The card direction is good:</strong> friendly service names, concise lead text, expandable evidence, per-card feedback, and no routine-only live messages.</li>
+<li><strong>Feedback ambiguity is handled thoughtfully.</strong> v3.1 card/message mapping avoids guessing which card a reply labels.</li>
+<li><strong>P0 is protected from repeat/mute suppression.</strong> Any change to incident aggregation must preserve that policy unless Chris explicitly changes it.</li>
+<li><strong>Jev is already isolated behind a typed contract and supports shadow comparison.</strong> Do not throw that away while fixing transport and lifecycle problems.</li>
+<li><strong>The efficiency plan has the right instinct:</strong> keep full-fidelity logs in Loki and reduce signal-lane noise. It needs to come after correctness, not before it.</li>
+<li><strong>The deployment script now refuses a dirty tree.</strong> Extend that discipline to functional health verification rather than reverting it.</li>
+</ol>
+<hr>
+<h2 id="section-9-4-findings-ranked-by-consequence">4. Findings, ranked by consequence<a class="anchor" href="#section-9-4-findings-ranked-by-consequence" aria-label="Link to this section">#</a></h2>
+<h3 id="section-10-p0-restore-the-integrity-promise-before-adding-intelligence">P0 — restore the integrity promise before adding intelligence<a class="anchor" href="#section-10-p0-restore-the-integrity-promise-before-adding-intelligence" aria-label="Link to this section">#</a></h3>
+<h4 id="section-11-f1-active-v1-shadow-mode-can-consume-backlog-without-classifying-it">F1. Active v1/shadow mode can consume backlog without classifying it<a class="anchor" href="#section-11-f1-active-v1-shadow-mode-can-consume-backlog-without-classifying-it" aria-label="Link to this section">#</a></h4>
+<p><code>clusterEvents()</code> drops events older than the five-minute window in window mode (<code>lib.mjs:118-150</code>). <code>triage.mjs</code> deliberately uses window clustering for v1/shadow decisions (<code>triage.mjs:114-124</code>), then advances the event-file offset after the cycle (<code>triage.mjs:436-438</code>).</p>
+<p>An isolated fixture containing a 30-minute-old unread fatal error in default window mode produced:</p>
+<ul>
+<li>clusters: <code>0</code></li>
+<li>consumed offset: advanced to the full file length</li>
+</ul>
+<p>A mixed fixture containing one recent and one old event classified only the recent event. A second cycle cannot recover the old one because its offset was consumed. Batch mode avoids this particular loss, but active configuration is <code>shadow</code> and its decision path defaults to window mode.</p>
+<p><strong>Impact:</strong> outages and backlogs can hide the exact events that monitoring should recover.  </p>
+<p><strong>Required change:</strong> separate <em>coverage</em> from <em>baseline windows</em>. Every unread event must be deterministically evaluated; the five-minute window is context, not permission to discard the backlog.</p>
+<h4 id="section-12-f2-loki-tailing-loses-data-under-ordinary-edge-cases">F2. Loki tailing loses data under ordinary edge cases<a class="anchor" href="#section-12-f2-loki-tailing-loses-data-under-ordinary-edge-cases" aria-label="Link to this section">#</a></h4>
+<p><code>loki-tail.mjs</code> has several independent problems:</p>
+<ul>
+<li>At over-cap, it keeps the newest 5,000 lines and discards older lines, then advances beyond them (<code>loki-tail.mjs:124-146</code>). A synthetic 6,001-line response produced 5,000 appended events, <code>truncated:false</code>, and a cursor at the newest source timestamp. The comment claiming capped data is revisited is incorrect.</li>
+<li>Deduplication is <code>job|line</code>, not timestamped (<code>loki-tail.mjs:129-132</code>). Identical recurring log messages can be suppressed while the content hash remains in the 4,000-entry set.</li>
+<li>A gap greater than two hours is deliberately skipped (<code>loki-tail.mjs:35-40</code>) without a durable, user-visible backlog-loss incident.</li>
+<li>Errors are logged as JSON but can exit zero. If some events were appended, a later error is not reflected in process status (<code>loki-tail.mjs:149-157</code>).</li>
+<li>State loading and saving are not robust/atomic (<code>loki-tail.mjs:30,77-80</code>). Corrupt state can repeatedly break polling; a torn write is not safely recovered.</li>
+</ul>
+<p><strong>Impact:</strong> silent undercounting, missed bursts, and misleading health during floods or outages.  </p>
+<p><strong>Required change:</strong> paginated/per-stream cursors, no content-only dedup, durable drop/backlog counters, nonzero failure status, and atomic state.</p>
+<h4 id="section-13-f3-some-deterministic-rules-do-not-match-the-normalized-event-shapes-they-receive">F3. Some deterministic rules do not match the normalized event shapes they receive<a class="anchor" href="#section-13-f3-some-deterministic-rules-do-not-match-the-normalized-event-shapes-they-receive" aria-label="Link to this section">#</a></h4>
+<ul>
+<li>FortiGate normalization sets <code>program = type</code> (<code>lib.mjs:51-52</code>), so a system event has <code>program = "event"</code>; a rule expecting <code>job = "auth"</code> cannot match. The <code>auth-burst</code> rule also expects <code>job = "sshd"</code>, while RFC3164 normalization produces <code>program = "sshd"</code> and no <code>fields.job</code> (<code>lib.mjs:65-82</code>, <code>lib.mjs:291-305</code>).</li>
+<li>FortiGate message extraction uses only <code>msg || action</code> (<code>lib.mjs:56</code>), discarding useful text such as <code>logdesc="Admin login failed"</code> when <code>msg</code> is absent.</li>
+<li>App rules inspect only <code>cluster.samples</code>, which contain the first three messages (<code>lib.mjs:146,296</code>). A matching event later in a large cluster need not be seen. The same limitation affects some generic background/severity checks.</li>
+<li>Background rules can be evaluated before a meaningful pattern in a non-sampled event. P0 honeytoken/IOC raw-event scanning is the important exception; this finding is <strong>not</strong> a claim that the P0 honeytoken scan examines only three samples.</li>
+</ul>
+<p>Synthetic FortiGate and SSH auth fixtures returned <code>rule_match: null</code> with the current selectors. This is a parser/rule-contract defect, not proof that every production auth event is missed; real sanitized fixtures must become regression tests.</p>
+<p><strong>Impact:</strong> documented deterministic coverage can be narrower than operators believe.  </p>
+<p><strong>Required change:</strong> one canonical event schema, selector aliases with explicit semantics, preservation of security-relevant fields, and per-event safety evaluation before aggregation.</p>
+<h4 id="section-14-f4-digest-and-live-delivery-are-not-durable-end-to-end">F4. Digest and live delivery are not durable end to end<a class="anchor" href="#section-14-f4-digest-and-live-delivery-are-not-durable-end-to-end" aria-label="Link to this section">#</a></h4>
+<ul>
+<li>Digest displays at most 15 items, then rotates the entire queue (<code>digest.mjs:137-141,205-209</code>). A 16-item fixture showed 15 and left zero pending afterward. Overflow is only a count, not a retained next-digest backlog.</li>
+<li>A digest body is sent before question cards; failed question sends are only logged and the queue is still rotated (<code>digest.mjs:180-209</code>).</li>
+<li>The live digest is currently failing Telegram HTML parsing. <code>routineSummaryLine()</code> interpolates the group title without escaping (<code>cards.mjs:305-307</code>); other renderers also truncate assembled HTML using <code>slice()</code> (<code>cards.mjs:327,353</code>), which can split a tag or entity.</li>
+<li>A mocked <code>{ok:false}</code> response was treated as delivered by <code>deliver()</code>; the production helper normally throws for this case, but the delivery contract itself does not validate a message ID.</li>
+<li>Live sends update in-memory repeat state per card, but the durable ping/card mapping is written after all sends (<code>triage.mjs:265-295</code>). A crash after a successful Telegram send can leave a real card with dead buttons and repeat suppression not yet persisted.</li>
+<li>AI failure can turn Jev-only novel items into <code>no_action</code> fallback cards. That is not a consistently fail-visible interpretation of “fail-open.”</li>
+</ul>
+<p><strong>Impact:</strong> the alert can exist in code but never become a usable Telegram message or feedback record.  </p>
+<p><strong>Required change:</strong> durable outbox, per-message acknowledgement, safe message construction, and explicit pending/failed/unknown delivery states.</p>
+<h3 id="section-15-p1-make-failures-observable-and-the-system-operable">P1 — make failures observable and the system operable<a class="anchor" href="#section-15-p1-make-failures-observable-and-the-system-operable" aria-label="Link to this section">#</a></h3>
+<h4 id="section-16-f5-collection-and-pipeline-failures-are-mostly-log-only">F5. Collection and pipeline failures are mostly log-only<a class="anchor" href="#section-16-f5-collection-and-pipeline-failures-are-mostly-log-only" aria-label="Link to this section">#</a></h4>
+<ul>
+<li><code>ticker.sh</code> starts the UDP receiver once, outside its loop; a receiver crash is not supervised (<code>ticker.sh:4-6</code>).</li>
+<li><code>receiver.mjs</code> has two socket error handlers, one of which exits the process (<code>receiver.mjs:17-27</code>). UDP writes are synchronous per line and have no global/peer backpressure or ingest counters.</li>
+<li>There is no functional healthcheck in <code>compose.yaml</code>; <code>restart: always</code> cannot repair a live but stuck pipeline.</li>
+<li>The existing proposed flood defense drops lines but does not yet specify a bounded peer map, durable per-class drop counters, or a flood signal that bypasses its own dropping path.</li>
+<li>A 64 MiB byte cap does not cap memory after parsing and retaining full event objects in clusters. High-volume floods can still expand far beyond the input buffer.</li>
+</ul>
+<p><strong>Required change:</strong> supervised receiver, functional health state, source freshness, resource limits, bounded aggregation, and measurable shedding with Loki as the archive backstop.</p>
+<h4 id="section-17-f6-state-persistence-and-compaction-have-avoidable-failure-modes">F6. State persistence and compaction have avoidable failure modes<a class="anchor" href="#section-17-f6-state-persistence-and-compaction-have-avoidable-failure-modes" aria-label="Link to this section">#</a></h4>
+<ul>
+<li><code>triage-state.json</code>, <code>sig-stats.json</code>, <code>mutes.json</code>, and Loki state use direct writes; reads often turn corruption into empty state. That can reset offsets or lose repeat/mute history.</li>
+<li><code>history.mjs</code> silently ignores save failures (<code>history.mjs:31-33</code>). Baselines can be empty without an operator-visible warning.</li>
+<li>Compaction measures file size and then moves the file; a receiver append in between can move unprocessed bytes into an archive (<code>ticker.sh:16-22</code>).</li>
+<li><code>deploy.sh</code> touches <code>config/decisions.log</code>, but Compose mounts <code>data/jev-decisions.log</code>. A fresh deployment can create the wrong type/path for the actual ledger.</li>
+<li>Large JSONL ledgers are repeatedly read in full by digest/label/history tools. Rotation currently focuses on logs/event archives, not all state.</li>
+</ul>
+<p><strong>Required change:</strong> atomic writes during transition, safe compaction, bounded reads, then one durable store for operational state with JSONL compatibility exports.</p>
+<h4 id="section-18-f7-documentation-and-runtime-authority-have-drifted">F7. Documentation and runtime authority have drifted<a class="anchor" href="#section-18-f7-documentation-and-runtime-authority-have-drifted" aria-label="Link to this section">#</a></h4>
+<p>The README still describes older card/Jev behavior; <code>docs/ARCHITECTURE.md</code> describes older clustering and delivery; <code>docs/JEV.md</code> and <code>docs/GUIDE.md</code> promise complete coverage or louder failure in terms stronger than the current implementation demonstrates. Deployed code and working-tree code differ. The Qwen plan still describes a separate follow-up assessment although cards now fold it into rendering.</p>
+<p><strong>Required change:</strong> versioned architecture docs generated from the actual release manifest, explicit “live” versus “proposed” sections, and release acceptance based on behavior rather than container status.</p>
+<h3 id="section-19-p2-improve-judgment-quality-only-after-the-foundation-is-measurable">P2 — improve judgment quality only after the foundation is measurable<a class="anchor" href="#section-19-p2-improve-judgment-quality-only-after-the-foundation-is-measurable" aria-label="Link to this section">#</a></h3>
+<h4 id="section-20-f8-the-system-has-classifiers-but-not-a-durable-concept-of-an-incident">F8. The system has classifiers, but not a durable concept of an incident<a class="anchor" href="#section-20-f8-the-system-has-classifiers-but-not-a-durable-concept-of-an-incident" aria-label="Link to this section">#</a></h4>
+<p>Five-minute clusters, repeat suppression, and friendly card grouping are useful, but they do not answer: Is this the same ongoing outage? Has it spread? Was it acknowledged? Did it recover? Is a stopped log stream recovery or collector failure?</p>
+<p>This is the largest product limitation after integrity. It is why better wording alone cannot dramatically improve the system.</p>
+<h4 id="section-21-f9-feedback-is-not-yet-a-reliable-learning-dataset">F9. Feedback is not yet a reliable learning dataset<a class="anchor" href="#section-21-f9-feedback-is-not-yet-a-reliable-learning-dataset" aria-label="Link to this section">#</a></h4>
+<ul>
+<li>Only five non-auto labels exist, all useful. There is no meaningful noise class or evaluation baseline yet.</li>
+<li>Labels join the latest shadow row by signature (<code>label.mjs:60-66,131-149</code>), not necessarily the exact decision/cycle that produced the alert.</li>
+<li>Features/model/prompt/card versions are not consistently captured as one immutable decision record.</li>
+<li>Auto-labels can be useful triage hints, but ignored/no-action and model-generated routine judgments are not independent ground truth.</li>
+<li>Planned ML features include Jev probabilities; a future “ML beat Jev” comparison must control for this predictor leakage and use time-held-out human outcomes.</li>
+<li>The planned 300-label gate is a minimum convenience threshold, not evidence of class coverage, recall, calibration, or deployability.</li>
+</ul>
+<p><strong>Required change:</strong> exact-decision feedback, human-only evaluation, meaningful class coverage, and replay/shadow gates.</p>
+<hr>
+<h2 id="section-22-5-target-architecture">5. Target architecture<a class="anchor" href="#section-22-5-target-architecture" aria-label="Link to this section">#</a></h2>
+<pre><code class="language-text">Loki (full-fidelity archive)          UDP/Mac shippers (best-effort edge)
+             \                              /
+              \                            /
+               +------ ingestion ----------+
+               | canonical event schema    |
+               | cursors + source health   |
+               | bounds + loss counters    |
+               +-------------+-------------+
+                             |
+               +-------------v-------------+
+               | deterministic evaluation  |
+               | every event, P0/P1 first  |
+               +-------------+-------------+
+                             |
+               +-------------v-------------+
+               | signals + features        |
+               | Jev for ambiguous band    |
+               | pending != routine        |
+               +-------------+-------------+
+                             |
+               +-------------v-------------+
+               | incident engine           |
+               | entity/condition identity |
+               | open/ack/change/recover   |
+               +-------------+-------------+
+                             |
+          +------------------+-------------------+
+          |                                      |
++---------v---------+                 +----------v----------+
+| durable outbox    |                 | evidence playbooks  |
+| retries/backoff   |                 | read-only, typed    |
+| per-message ack   |                 | observed vs inferred|
++---------+---------+                 +----------+----------+
+          |                                      |
++---------v---------+                 +----------v----------+
+| Telegram cards    |&lt;----------------| explanation layer  |
+| feedback/actions  |                 | Qwen: words, not   |
+| exact decision ID |                 | arbitrary authority|
++-------------------+                 +---------------------+
+          |
++---------v-------------------------------+
+| SQLite operational state + JSONL export |
+| incidents, deliveries, feedback, health |
++-----------------------------------------+
+          |
++---------v---------+
+| independent       |
+| dead-man monitor  |
++-------------------+</code></pre>
+<h3 id="section-23-core-design-decisions">Core design decisions<a class="anchor" href="#section-23-core-design-decisions" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><strong>Coverage and notification are separate.</strong> Complete durable accounting does not mean every event pings.</li>
+<li><strong>A signal is not an incident.</strong> <code>source + signature</code> is useful for grouping events; <code>entity + condition + scope</code> is the incident identity.</li>
+<li><strong>Pending is not routine.</strong> Unscored, unclassified, AI-unavailable, and over-cap items remain visibly pending. They cannot be silently converted into no-action feedback.</li>
+<li><strong>AI explains; policy decides.</strong> P0/P1 severity, quiet-hours policy, muting, retries, and escalation are code/config. Jev remains an explicit ambiguous-band classifier until evaluated otherwise.</li>
+<li><strong>Delivery is at-least-once with explicit uncertainty.</strong> Telegram plus a process crash cannot provide magical exactly-once delivery. Store intent before sending, record success immediately, and expose <code>unknown</code> after ambiguous timeouts instead of silently pretending either success or failure.</li>
+<li><strong>Logs are evidence, not instructions.</strong> No log text, model response, or Telegram label can authorize tools or configuration changes.</li>
+<li><strong>Self-monitoring must have an independent path.</strong> AI/Qwen/Jev/Loki failure must not disable the monitor's own failure signal. Whole-host failure requires a watcher off <code>.110</code>.</li>
+</ol>
+<h3 id="section-24-storage-choice-small-sqlite-not-a-new-platform">Storage choice: small SQLite, not a new platform<a class="anchor" href="#section-24-storage-choice-small-sqlite-not-a-new-platform" aria-label="Link to this section">#</a></h3>
+<p>Use Node's built-in <code>node:sqlite</code> (available in the current Node runtime) with one writer, WAL, busy timeout, schema migrations, and bounded retention. This removes many full-file scans and torn JSON writes without adding a database container.</p>
+<p>Suggested tables:</p>
+<ul>
+<li><code>ingest_state(source, cursor_json, file_identity, updated_at)</code></li>
+<li><code>events_accounting(cycle_id, received, parsed, classified, held, pending, delivered, digest, suppressed, dropped, error)</code></li>
+<li><code>signals(signal_id, fingerprint, entity, condition, first_seen, last_seen, count, severity, decision_json, evidence_locator)</code></li>
+<li><code>incidents(incident_id, fingerprint, state, severity, first_seen, last_seen, version, ack_by, ack_at, resolved_at)</code></li>
+<li><code>incident_updates(incident_id, version, change_type, summary_json, created_at)</code></li>
+<li><code>outbox(delivery_id, incident_id, update_version, kind, payload_json, state, attempts, next_attempt_at, telegram_message_id, last_error, created_at, sent_at)</code></li>
+<li><code>feedback(feedback_id, delivery_id, incident_id, decision_id, label, origin, actor, created_at)</code></li>
+<li><code>source_health(source, last_seen, expected_cadence, status, metadata_json)</code></li>
+<li><code>daily_baselines(entity, condition, day, event_count, cycle_count, ping_count)</code></li>
+<li><code>schema_migrations(version, applied_at)</code></li>
+</ul>
+<p>Do not store raw secrets. Store scrubbed snippets or Loki locators, with size/retention limits. Preserve existing JSONL files during migration and generate compatibility exports until feedback/report tooling is migrated and verified.</p>
+<hr>
+<h2 id="section-25-6-implementation-phases">6. Implementation phases<a class="anchor" href="#section-25-6-implementation-phases" aria-label="Link to this section">#</a></h2>
+<h2 id="section-26-phase-0-freeze-a-known-baseline-and-create-the-replay-harness">Phase 0 — Freeze a known baseline and create the replay harness<a class="anchor" href="#section-26-phase-0-freeze-a-known-baseline-and-create-the-replay-harness" aria-label="Link to this section">#</a></h2>
+<p><strong>Effort:</strong> 0.5–1 focused day.  </p>
+<p><strong>Goal:</strong> make changes reviewable and distinguish deployed behavior from working-tree behavior.</p>
+<h3 id="section-27-tasks">Tasks<a class="anchor" href="#section-27-tasks" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Review the existing uncommitted v3.1 changes with Chris; preserve them in a named branch/commit only after approval. Do not mix them with unrelated workspace changes.</li>
+<li>Produce a release manifest: Git revision, runtime file hashes, config hash, model names, deployed hashes, and test results.</li>
+<li>Add sanitized fixtures for FortiGate auth/config, SSH auth, recurring identical logs, honeytokens, floods, backlog, malformed HTML, and model/Telegram failure.</li>
+<li>Create <code>scripts/replay.mjs</code> (new): read a fixture manifest or sanitized exported JSONL, use a temporary data directory, inject model/send functions, and produce machine-readable decisions/accounting. It must reject live sending unless a separate explicit canary flag is supplied.</li>
+<li>Record seven-day baselines before promising percentage improvements: actionable messages/day, duplicate messages, delivery failures, Jev/model calls, cycle latency, and source freshness. Current ledgers are insufficient to invent these numbers.</li>
+<li>Mark docs that describe future or old behavior; do not present the v2 shadow as the acting engine.</li>
+</ol>
+<h3 id="section-28-new-changed-files">New/changed files<a class="anchor" href="#section-28-new-changed-files" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><code>test/fixtures/*.jsonl</code> and <code>test/fixtures/manifest.json</code></li>
+<li><code>scripts/replay.mjs</code></li>
+<li><code>test/replay.test.mjs</code></li>
+<li><code>docs/ARCHITECTURE.md</code>, <code>README.md</code></li>
+<li><code>RELEASE.md</code> or generated <code>release-manifest.json</code> (no secrets)</li>
+</ul>
+<h3 id="section-29-acceptance">Acceptance<a class="anchor" href="#section-29-acceptance" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>One command replays every fixture without external network or Telegram.</li>
+<li>The baseline manifest identifies exactly which code produced which expected output.</li>
+<li>All existing tests still pass; external contract tests are reported separately, not silently skipped in CI.</li>
+<li>No deployment is implied by completing this phase.</li>
+</ul>
+<h3 id="section-30-verification">Verification<a class="anchor" href="#section-30-verification" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-sh">cd ~/clawd/projects/ops-watch
+node --test test/cards.test.mjs test/digest.test.mjs test/label.test.mjs \
+  test/triage.test.mjs test/v2.test.mjs test/contract-jev.test.mjs
+node scripts/replay.mjs --fixtures test/fixtures/manifest.json --report /tmp/ops-baseline.json
+node -e &#x27;const r=require(&quot;/tmp/ops-baseline.json&quot;); if(r.network||r.telegram)process.exit(1)&#x27;</code></pre>
+<hr>
+<h2 id="section-31-phase-1-correct-ingestion-deterministic-coverage-and-bounded-flood-behavior">Phase 1 — Correct ingestion, deterministic coverage, and bounded flood behavior<a class="anchor" href="#section-31-phase-1-correct-ingestion-deterministic-coverage-and-bounded-flood-behavior" aria-label="Link to this section">#</a></h2>
+<p><strong>Effort:</strong> 2–3 focused days plus a 24-hour shadow soak.  </p>
+<p><strong>Goal:</strong> every unread event is accounted for, even during backlog and model failure.</p>
+<h3 id="section-32-tasks">Tasks<a class="anchor" href="#section-32-tasks" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><strong>Canonical event schema.</strong> Preserve <code>origin</code>, <code>source</code>, <code>host</code>, <code>service/job</code>, <code>program</code>, <code>event_ts</code>, <code>received_at</code>, <code>level</code>, <code>message</code>, selected fields, and parse status. Keep <code>job</code> and <code>program</code> distinct; define rule matching explicitly.</li>
+<li><strong>Parser/rule contract tests.</strong> Build fixtures from real sanitized logs. Preserve <code>logdesc</code>, <code>status</code>, and other relevant fields in searchable security text. Test the actual emitted shipper shape, not a guessed format.</li>
+<li><strong>Coverage before aggregation.</strong> Evaluate P0/P1 security invariants per event, then aggregate matching observations. Apply volume/background suppression only after higher-priority matches. P3 must never erase a P0/P1 match.</li>
+<li><strong>Backlog-safe triage.</strong> Classify the full unread batch in bounded chunks. Use event-time windows for baselines and card wording, but never discard older unread events. Treat Jev/model caps as <code>pending/unscored</code>, with deterministic priority and a visible backlog—not as routine holds.</li>
+<li><strong>Loki cursor correctness.</strong> Replace newest-only truncation with proper pagination/per-stream continuation. Include timestamp/stream identity in continuation; do not dedup identical messages by content alone. Preserve cursor on failure and expose lag. Replace the silent two-hour skip with an explicit replay or a durable, counted operator decision.</li>
+<li><strong>Streaming/resource bounds.</strong> Avoid retaining every full event in every cluster when only counts/samples/selected safety fields are needed. Bound chunk bytes, cluster count, sample memory, and concurrent work. Measure RSS under a flood before choosing a container memory limit.</li>
+<li><strong>Receiver supervision.</strong> Remove duplicate fatal handlers; supervise/restart the receiver and expose last successful socket/bind/write time. Append failures must create health state, not just an uncaught crash.</li>
+<li><strong>Safe rotation/compaction.</strong> Coordinate file identity, consumed offset, and rename. Never reset the cursor or delete a file while unread bytes remain. Add a kill/restart/compaction concurrency test.</li>
+<li><strong>Flood defense with evidence.</strong> Add bounded per-peer/global buckets and an allowlist. A flood signal must use a durable internal path that cannot be dropped by its own bucket. Record dropped counts by peer/class and expose them in health/digest. Do not enable collector edge-dropping until dry-run counts and P0/P1 fixture preservation pass.</li>
+<li><strong>Atomic transition state.</strong> Add write-temp/fsync/rename helpers for remaining JSON state, corruption backup, and safe recovery. Never interpret a corrupt cursor as permission to replay all alerts without suppression history.</li>
+</ol>
+<h3 id="section-33-acceptance">Acceptance<a class="anchor" href="#section-33-acceptance" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>6,001-line Loki fixture: all 6,001 are emitted or an explicit durable backlog remains; no silent skip.</li>
+<li>Identical messages ten minutes apart both survive.</li>
+<li>Thirty-minute backlog plus fresh events: every event receives a deterministic outcome; no offset advances past unaccounted input.</li>
+<li>FortiGate/SSH fixtures match their intended deterministic rules; P0 fixtures always outrank background suppression.</li>
+<li>Corrupt/torn state, killed receiver, full-disk simulation, and restart produce visible health errors and no uncontrolled replay storm.</li>
+<li>Measured flood run stays within the agreed memory budget and reports any shedding.</li>
+<li>No unread events are lost during 100 repeated compaction/restart fixture iterations.</li>
+</ul>
+<h3 id="section-34-verification">Verification<a class="anchor" href="#section-34-verification" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-sh">node --test test/ingest.test.mjs test/loki-tail.test.mjs test/rules.test.mjs \
+  test/recovery.test.mjs test/replay.test.mjs
+node scripts/replay.mjs --scenario backlog-35m --assert-accounting
+node scripts/replay.mjs --scenario loki-6001 --assert-accounting
+node scripts/replay.mjs --scenario flood --max-rss-mib 256 --report /tmp/ops-flood.json
+docker build -t ops-watch:candidate .
+docker run --rm --network none --read-only \
+  -v /tmp/ops-watch-fixture:/data ops-watch:candidate \
+  node scripts/replay.mjs --fixtures /data/manifest.json --no-network</code></pre>
+<p>The memory target is a proposed acceptance budget, to be validated against real replay rather than used as an unmeasured production limit.</p>
+<hr>
+<h2 id="section-35-phase-2-durable-delivery-digest-recovery-and-real-health-monitoring">Phase 2 — Durable delivery, digest recovery, and real health monitoring<a class="anchor" href="#section-35-phase-2-durable-delivery-digest-recovery-and-real-health-monitoring" aria-label="Link to this section">#</a></h2>
+<p><strong>Effort:</strong> 3–4 focused days plus 48-hour shadow/canary observation.  </p>
+<p><strong>Goal:</strong> a log line never has to become a Telegram message immediately to remain safe, but its status must always be known.</p>
+<h3 id="section-36-tasks">Tasks<a class="anchor" href="#section-36-tasks" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><strong>Add the SQLite operational store and migration.</strong> Preserve old JSONL read-only; back up before migration; do not rewrite historical labels.</li>
+<li><strong>Durable outbox.</strong> Insert alert intent and rendered content before send. Process one message at a time with bounded concurrency, exponential backoff/jitter, rate-limit handling, and dead-letter state. Record each Telegram success immediately before starting the next send.</li>
+<li><strong>Honest timeout semantics.</strong> States: <code>pending</code>, <code>sent</code>, <code>retryable_failed</code>, <code>unknown</code>, <code>dead_letter</code>. Require <code>ok === true</code> and a numeric message ID for <code>sent</code>. Never silently mark an uncertain timeout as delivered. Do not blindly retry an ambiguous send if duplicate P0s are worse; surface the uncertainty through the independent health path.</li>
+<li><strong>Safe Telegram rendering.</strong> Escape every dynamic title, service/program label, headline, sample, and summary. Build text chunks before adding HTML tags; never slice markup. Split digest bodies into numbered pages and preserve every item. A minimal plain-text health message must not depend on the card/model renderer.</li>
+<li><strong>Digest recovery.</strong> Acknowledge queue entries individually only after the message containing them is sent. Failed question cards remain pending. Overflow remains pending for the next digest or is represented by a complete aggregate, not discarded. Do not auto-label an item that was never actually rendered and delivered.</li>
+<li><strong>Migrate the existing 4,864-row backlog safely.</strong> Import/dedupe by stable queue fingerprint, label it <code>legacy-backlog</code>, and produce a dry-run summary first. Do not bulk-send old cards and do not delete the queue. Review the latest high-priority/send-failed signatures; routine history can be summarized. Migration requires a backup and an explicit run, not container startup magic.</li>
+<li><strong>Exact feedback identity.</strong> Store <code>delivery_id</code>, <code>incident/signal_id</code>, <code>decision_id</code>, cycle, prompt/model/card versions, and the exact feature snapshot. Keep <code>pings.jsonl</code>/<code>labels.jsonl</code> compatibility exports until Jarvon's <code>label.mjs</code> path is verified against the new store.</li>
+<li><strong>Functional healthcheck.</strong> Check receiver/cursor progress, last successful cycle, model error rate, oldest outbox/pending item, disk/database writability, and expected source freshness. A health endpoint/file returning stale state must become unhealthy even if Node is still running.</li>
+<li><strong>Independent dead-man signal.</strong> A lightweight watcher on the mini/M5Max checks an authenticated local heartbeat or heartbeat age and emits one deduped DOWN and one RECOVERED notification. It must not depend on <code>.110</code>, Loki, Jev, or Qwen being healthy. Whole-host loss cannot be detected by a process on that host.</li>
+<li><strong>Deployment hardening.</strong> Fix the ledger path, use only the existing secret mount (remove token scraping from <code>MEMORY.md</code>), add <code>healthcheck</code>, <code>pids_limit</code>, <code>cap_drop</code>, <code>no-new-privileges</code>, and measured memory limits. Move to a non-root user with carefully migrated bind-mount ownership; do not casually <code>chown</code> the whole data directory during deployment.</li>
+<li><strong>Release verification.</strong> Container status is insufficient. Require one no-network replay, one synthetic in-container cycle, and an explicit Telegram canary only when Chris authorizes it. Verify feedback resolution and rollback before calling the deploy healthy.</li>
+</ol>
+<h3 id="section-37-quiet-hours-requirement">Quiet-hours requirement<a class="anchor" href="#section-37-quiet-hours-requirement" aria-label="Link to this section">#</a></h3>
+<p>Existing ops-watch comments describe P0 as immediate/24×7, while the global quiet-hour rule currently names only four exception classes. This plan does <strong>not</strong> silently add another exception. Before changing escalation policy, Chris must explicitly decide whether deterministic P0 security emergencies may page overnight and whether the independent ops-watch-DOWN alert is an allowed exception. Until then, preserve existing behavior and document the conflict rather than “fixing” it implicitly.</p>
+<h3 id="section-38-acceptance">Acceptance<a class="anchor" href="#section-38-acceptance" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Kill the process after each of three sends: already acknowledged cards retain working feedback IDs; unsent work remains pending; recovery causes no uncontrolled storm.</li>
+<li>HTML containing <code>&lt;info&gt;</code>, ampersands, long Unicode, model-generated markup, and 20 digest pages never produces malformed entities or silent truncation.</li>
+<li>Failed body/question sends remain retryable. The current digest failure is reproduced by a fixture before the fix.</li>
+<li>No digest item disappears merely because it exceeds the display cap.</li>
+<li>Model down leaves deterministic alerts functional and ambiguous work visibly pending.</li>
+<li>Receiver down, Loki down, database unwritable, source stale, and whole-<code>.110</code> heartbeat loss each produce the intended, deduplicated health state.</li>
+<li>A rollback preserves the database and can still read/export prior feedback.</li>
+</ul>
+<h3 id="section-39-verification">Verification<a class="anchor" href="#section-39-verification" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-sh">node --test test/outbox.test.mjs test/digest-durability.test.mjs \
+  test/telegram-render.test.mjs test/feedback-join.test.mjs test/health.test.mjs
+node scripts/migrate-state.mjs --source data --target /tmp/ops-migration --dry-run
+node scripts/migrate-state.mjs --source data --target /tmp/ops-migration --verify
+docker compose config -q
+docker build -t ops-watch:candidate .
+docker inspect ops-watch:candidate --format &#x27;{{json .Config.Healthcheck}}&#x27;</code></pre>
+<p>Production Telegram canaries are a separate explicit step, never part of an unattended test command.</p>
+<hr>
+<h2 id="section-40-phase-3-replace-repetitive-cards-with-an-incident-lifecycle">Phase 3 — Replace repetitive cards with an incident lifecycle<a class="anchor" href="#section-40-phase-3-replace-repetitive-cards-with-an-incident-lifecycle" aria-label="Link to this section">#</a></h2>
+<p><strong>Effort:</strong> 3–5 focused days plus a seven-day comparison period.  </p>
+<p><strong>Goal:</strong> fewer, more useful conversations about actual conditions rather than repeated observations.</p>
+<h3 id="section-41-incident-identity-and-policy">Incident identity and policy<a class="anchor" href="#section-41-incident-identity-and-policy" aria-label="Link to this section">#</a></h3>
+<p>Use a fingerprint such as:</p>
+<pre><code class="language-text">entity (host + service) + condition (auth_burst, model_lane_unavailable,
+config_change, public_path_down, disk_error) + scope (lane/site, where relevant)</code></pre>
+<p>Do not use a raw message signature alone: IPs and counts change during one incident. Do not merge unrelated services merely because they log similar text.</p>
+<p>Lifecycle:</p>
+<ul>
+<li><code>open</code>: first actionable observation; notify immediately according to severity policy.</li>
+<li><code>acknowledged</code>: Chris/Jarvon has seen it; suppress routine repeats, not meaningful escalation.</li>
+<li><code>escalated</code>: severity increases, a new host/lane is affected, or the condition persists beyond a configured threshold.</li>
+<li><code>recovering</code>: evidence suggests recovery but requires confirmation.</li>
+<li><code>resolved</code>: confirmed recovery, or manual resolution for security/config events.</li>
+<li><code>stale/unknown</code>: logs stop but source health cannot distinguish recovery from ingestion failure.</li>
+</ul>
+<p>Recommended log-derived recovery is two or three healthy observation cycles <strong>while the source itself is proven alive</strong>. Silence alone is not recovery. P0 repeat behavior stays unchanged unless Chris explicitly approves aggregation; a new P0 is never muted by AI.</p>
+<h3 id="section-42-initial-deterministic-correlations">Initial deterministic correlations<a class="anchor" href="#section-42-initial-deterministic-correlations" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Proxy 5xx/timeouts plus backend model-serving failure → one <code>model lane degraded</code> incident, with proxy and backend as evidence.</li>
+<li>Cloudflared disconnect plus external-path failure while local service health remains good → one <code>public path unavailable</code> incident; do not claim the proxy itself is down without evidence.</li>
+<li>Auth failures across users/source IPs on one entity → one <code>authentication burst</code> incident, with counts and distinct principals as updates.</li>
+<li>Multiple service failures on one host plus host/kernel evidence → one host-level candidate incident, clearly labeled as correlated rather than proven causal.</li>
+</ol>
+<h3 id="section-43-card-contract">Card contract<a class="anchor" href="#section-43-card-contract" aria-label="Link to this section">#</a></h3>
+<p>Every incident card answers:</p>
+<ul>
+<li><strong>What happened?</strong> One plain sentence.</li>
+<li><strong>What is affected?</strong> Service, host/lane, and user impact if known.</li>
+<li><strong>Why now?</strong> New, worse, still ongoing, or recovered.</li>
+<li><strong>How confident?</strong> Deterministic match / classifier assessment / evidence-confirmed, with unknowns.</li>
+<li><strong>What next?</strong> One safe check or “Investigate” action.</li>
+<li><strong>State:</strong> incident short ID and open/ack/recovering/resolved state.</li>
+</ul>
+<p>Technical details remain expandable and scrubbed. Add a verified Grafana/Loki deep link only after its existing authenticated route and query parameters are tested; never invent links. A local <code>incidents.mjs list/show/history</code> CLI is sufficient before any dashboard.</p>
+<h3 id="section-44-feedback-actions">Feedback/actions<a class="anchor" href="#section-44-feedback-actions" aria-label="Link to this section">#</a></h3>
+<p>Retain the current <code>useful/noise/mute</code> meanings for learning. Add incident-level <code>ack</code>, <code>resolve</code>, and <code>investigate</code> through the existing Jarvon callback/reply path. Do not poll Telegram from ops-watch or create a webhook on the shared bot token. Acknowledgement must not hide a later severity/scope change.</p>
+<h3 id="section-45-baselines">Baselines<a class="anchor" href="#section-45-baselines" aria-label="Link to this section">#</a></h3>
+<p>Store compact per-entity/condition daily aggregates for at least 30 days. Query Loki for older raw evidence when necessary; do not retain full raw events in SQLite. Only call something a spike with enough count/history to support that statement. Low-volume new patterns are “new,” not statistically anomalous.</p>
+<h3 id="section-46-acceptance">Acceptance<a class="anchor" href="#section-46-acceptance" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>One continuing condition produces one incident and no duplicate initial cards after restart.</li>
+<li>Severity/scope changes create an update; unrelated service failures do not merge.</li>
+<li>Recovery requires the specified healthy evidence and source freshness.</li>
+<li>Feedback/mute/ack survives restart and joins the exact incident update.</li>
+<li>A seven-day replay compares message count and critical-fixture recall against Phase 2 with no AI decision change hidden inside the comparison.</li>
+</ul>
+<h3 id="section-47-verification">Verification<a class="anchor" href="#section-47-verification" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-sh">node --test test/incident-state.test.mjs test/correlation.test.mjs \
+  test/incident-recovery.test.mjs test/incident-feedback.test.mjs
+node scripts/replay.mjs --days 7 --mode phase2 --report /tmp/ops-cards.json
+node scripts/replay.mjs --days 7 --mode incidents --report /tmp/ops-incidents.json
+node scripts/compare-replay.mjs /tmp/ops-cards.json /tmp/ops-incidents.json</code></pre>
+<hr>
+<h2 id="section-48-phase-4-evidence-backed-read-only-investigation">Phase 4 — Evidence-backed, read-only investigation<a class="anchor" href="#section-48-phase-4-evidence-backed-read-only-investigation" aria-label="Link to this section">#</a></h2>
+<p><strong>Effort:</strong> 4–6 focused days; deploy only after Phases 1–3 are stable.  </p>
+<p><strong>Goal:</strong> transform “something unusual happened” into “here is what we checked and what remains unknown.”</p>
+<h3 id="section-49-first-three-investigation-adapters">First three investigation adapters<a class="anchor" href="#section-49-first-three-investigation-adapters" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><strong>Loki evidence query:</strong> bounded logs for the incident's entity/condition/time range; return counts and scrubbed samples, not unrestricted queries.</li>
+<li><strong>Service/container health:</strong> allowlisted inspect/status/health information for known ops services; no restart, stop, update, or arbitrary Docker API access.</li>
+<li><strong>Model-lane health:</strong> existing HTTP health/model endpoints with short timeouts and minimal response allowlists; no credentials in evidence or prompts.</li>
+</ol>
+<h3 id="section-50-evidence-playbook-contract">Evidence playbook contract<a class="anchor" href="#section-50-evidence-playbook-contract" aria-label="Link to this section">#</a></h3>
+<p>Each playbook has a fixed incident type, typed parameters, allowed target set, timeout, output size limit, and sanitization. It emits:</p>
+<pre><code class="language-json">{
+  &quot;check&quot;: &quot;model-backend-health&quot;,
+  &quot;target_alias&quot;: &quot;approved-lane-a&quot;,
+  &quot;observed_at&quot;: &quot;...&quot;,
+  &quot;status&quot;: &quot;ok|failed|timeout|unavailable&quot;,
+  &quot;facts&quot;: [],
+  &quot;unknowns&quot;: [],
+  &quot;artifact_locator&quot;: &quot;...&quot;,
+  &quot;redactions&quot;: 0
+}</code></pre>
+<p>A model may summarize this structured evidence using the already approved local model lane. It may not choose a shell command, target, credential, or remediation. Output must distinguish:</p>
+<ul>
+<li><strong>Observed:</strong> directly returned by a check.</li>
+<li><strong>Assessment:</strong> interpretation of those observations.</li>
+<li><strong>Unknown:</strong> unavailable, contradictory, or unchecked.</li>
+<li><strong>Next safe step:</strong> a human-readable action or an allowed additional check.</li>
+</ul>
+<p>Run investigation on demand first. Automatic investigation for selected P1 incident types can be enabled later only if it is reliable and useful. There is no automatic remediation in this plan.</p>
+<h3 id="section-51-acceptance">Acceptance<a class="anchor" href="#section-51-acceptance" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Timeouts/unavailable dependencies produce <code>unknown</code> and never a fabricated healthy/root-cause conclusion.</li>
+<li>Injection strings in logs cannot select a tool, alter the target, or cause a network/action outside the playbook.</li>
+<li>Every conclusion links to structured evidence; every check is timeout/output bounded and scrubbed.</li>
+<li>No write-capable Docker socket, shell evaluator, or arbitrary SSH command is exposed to the model.</li>
+<li>A blind fixture evaluation confirms that the summary is more useful than the Phase 3 card without increasing unsupported claims.</li>
+</ul>
+<h3 id="section-52-verification">Verification<a class="anchor" href="#section-52-verification" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-sh">node --test test/evidence-playbooks.test.mjs test/evidence-redaction.test.mjs \
+  test/investigation-prompt.test.mjs test/investigation-policy.test.mjs
+node scripts/investigate.mjs --fixture test/fixtures/model-lane-degraded.json --offline
+node scripts/investigate.mjs --fixture test/fixtures/injection.json --offline --assert-no-egress</code></pre>
+<p>Any live read-only adapter rollout is separately allowlisted and verified; offline tests do not authorize production access.</p>
+<hr>
+<h2 id="section-53-phase-5-evaluation-decision-consolidation-and-responsible-learning">Phase 5 — Evaluation, decision consolidation, and responsible learning<a class="anchor" href="#section-53-phase-5-evaluation-decision-consolidation-and-responsible-learning" aria-label="Link to this section">#</a></h2>
+<p><strong>Effort:</strong> 2–3 days of tooling, then one to two weeks of observation.  </p>
+<p><strong>Goal:</strong> improve decisions with evidence rather than adding overlapping AI judgments.</p>
+<h3 id="section-54-tasks">Tasks<a class="anchor" href="#section-54-tasks" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Keep Jev v2 in shadow until the acting baseline and v2 are compared on identical, correctly ingested events. Do not change ingestion, incident logic, and classifier authority in one release.</li>
+<li>Separate <strong>classification</strong> (routine/fault/security/uncertain) from <strong>wording</strong> (card explanation). Qwen should not silently reroute a previously actionable ambiguous signal to no-action merely because the model is unavailable or disagrees without a policy reason.</li>
+<li>Report per-source/per-severity performance and class counts. Include unscored/pending rates; a classifier that scores only easy events must not appear highly accurate.</li>
+<li>Build a human-labeled benchmark with both useful and noise/missed examples. Include missed events discovered through sampled Loki review and synthetic canaries. Auto-labels are weak hints, never independent test truth.</li>
+<li>Measure critical-fixture recall, actionable precision, duplicate rate, missed-event review, detection latency, recovery accuracy, and investigation evidence yield.</li>
+<li>Compare ML against a trivial baseline and Jev without leaking Jev probabilities into a claimed independent improvement. Use time-based holdout, exact-decision joins, and human-only test labels.</li>
+<li>Keep the 300-human-label minimum if desired, but add class-coverage and performance gates. More rows of one class are not readiness. No automatic model retraining or auto-promotion.</li>
+<li>Produce a concise weekly report: open/resolved incidents, false-positive feedback, missed review, delivery reliability, source coverage, pending backlog, and model/token usage. No “300 predictions → 2 questions” claim until measured.</li>
+</ol>
+<h3 id="section-55-proposed-promotion-gates">Proposed promotion gates<a class="anchor" href="#section-55-proposed-promotion-gates" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>100% pass on deterministic P0/P1 safety fixtures and ingestion accounting fixtures.</li>
+<li>No regression in human-labeled critical recall relative to the current acting baseline.</li>
+<li>Lower duplicate/actionable-message burden on the same replay, with the reduction reported rather than assumed.</li>
+<li>Zero unaccounted events and zero silently pending/dead-letter deliveries.</li>
+<li>Stable soak with no unexplained health gaps or resource growth.</li>
+<li>Chris explicitly approves acting-mode promotion. Shadow output alone never changes live suppression.</li>
+</ul>
+<hr>
+<h2 id="section-56-phase-6-complete-the-efficiency-work-and-simplify-operations">Phase 6 — Complete the efficiency work and simplify operations<a class="anchor" href="#section-56-phase-6-complete-the-efficiency-work-and-simplify-operations" aria-label="Link to this section">#</a></h2>
+<p><strong>Effort:</strong> 1–2 days after correctness is deployed, plus a one-week review.  </p>
+<p><strong>Goal:</strong> realize the existing efficiency plan without turning cost reduction into blindness.</p>
+<h3 id="section-57-tasks">Tasks<a class="anchor" href="#section-57-tasks" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Enable collector edge routing only from a versioned, tested filter configuration with P0/P1 allow-before-drop behavior, dry-run counts, and full Loki retention.</li>
+<li>Report per-class drops and per-peer flood shedding in the daily health summary. Preserve an easy way to replay filtered classes from Loki.</li>
+<li>Rotate/bound large JSONL compatibility exports and logs; retain database backups and restore tests. Pruning must never erase the only copy of unacknowledged work.</li>
+<li>Replace remaining full-file reads with indexed queries or bounded tails. Archive historical shadow rows after reporting/retention requirements are met.</li>
+<li>Measure token/model use after incident correlation; optimize repeated classification with incident context and safe caching before considering any new model.</li>
+<li>Update README, architecture, rules, feedback, and runbook to match the deployed release. Document rollback, backup/restore, stale-source handling, and failure injection.</li>
+<li>Remove obsolete v1/v2/digest paths only after compatibility and replay checks prove they are no longer needed.</li>
+</ol>
+<hr>
+<h2 id="section-58-7-metrics-and-targets">7. Metrics and targets<a class="anchor" href="#section-58-7-metrics-and-targets" aria-label="Link to this section">#</a></h2>
+<p>Measure a seven-day baseline first. These are proposed targets, not claims about current performance.</p>
+<div class="table-wrap"><table><thead><tr><th>Area</th><th>Metric</th><th>Proposed gate/target</th></tr></thead><tbody>
+<tr><td>---</td><td>---</td><td>---</td></tr>
+<tr><td>Event integrity</td><td>Accepted events with a durable accounted outcome</td><td>100%; zero unexplained loss</td></tr>
+<tr><td>Backlog</td><td>Oldest unprocessed/pending item</td><td>Visible; deterministic alert threshold, no silent aging</td></tr>
+<tr><td>Source coverage</td><td>Expected sources with fresh heartbeat/progress</td><td>100%, or one explicit stale-source incident</td></tr>
+<tr><td>Deterministic safety</td><td>P0/P1 fixture recall</td><td>100%</td></tr>
+<tr><td>Delivery</td><td>Alerts with known delivery state</td><td>100%; unknown explicitly surfaced</td></tr>
+<tr><td>Delivery</td><td>Silent dead-letter/failed digest items</td><td>0</td></tr>
+<tr><td>Latency</td><td>Event-to-actionable notification</td><td>p95 ≤10 minutes initially; tighten after measurement</td></tr>
+<tr><td>Noise</td><td>Duplicate initial messages for one continuing incident</td><td>0</td></tr>
+<tr><td>Noise</td><td>Actionable messages on identical replay</td><td>≥50% reduction target without recall regression</td></tr>
+<tr><td>Attention</td><td>Digest questions</td><td>At most the configured cap; only actually delivered items eligible</td></tr>
+<tr><td>Recovery</td><td>Resolved solely because logs went quiet while source health is unknown</td><td>0</td></tr>
+<tr><td>Investigation</td><td>Claims backed by returned evidence or explicitly marked unknown</td><td>100%</td></tr>
+<tr><td>Learning</td><td>Evaluation labels</td><td>Human, exact-decision joined, class counts reported</td></tr>
+<tr><td>Resources</td><td>RSS/cycle time/model spend</td><td>Bounded and no worse than agreed baseline after soak</td></tr>
+</tbody></table></div>
+<p>The most important daily report is small:</p>
+<blockquote>
+<p>Open incidents · new/resolved · delivery failures · stale sources · pending backlog · dropped-event counters · items needing Chris</p>
+</blockquote>
+<p>If all are healthy, no extra “everything is fine” Telegram message is needed outside the chosen digest cadence.</p>
+<hr>
+<h2 id="section-59-8-file-level-implementation-map">8. File-level implementation map<a class="anchor" href="#section-59-8-file-level-implementation-map" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Existing/new file</th><th>Planned responsibility</th></tr></thead><tbody>
+<tr><td>---</td><td>---</td></tr>
+<tr><td><code>lib.mjs</code></td><td>Incrementally extract canonical event, clustering, policy, and atomic-state helpers; avoid a giant rewrite</td></tr>
+<tr><td><code>loki-tail.mjs</code></td><td>Correct cursors/pagination, per-source health, durable backlog/loss counters, testable main guard</td></tr>
+<tr><td><code>receiver.mjs</code></td><td>Supervised/bounded ingest, peer policy, counters, safe writes</td></tr>
+<tr><td><code>triage.mjs</code></td><td>Full-batch deterministic accounting, pending backlog, outbox production; no direct ad-hoc alert sends</td></tr>
+<tr><td><code>triage-v2.mjs</code>, <code>jev-client.mjs</code></td><td>Keep shadow/typed classification; correct all-failed/pending accounting; consolidate only after comparison</td></tr>
+<tr><td><code>rules.json</code></td><td>Match canonical schema; fixture every selector and preserve safety precedence</td></tr>
+<tr><td><code>store.mjs</code> (new)</td><td>SQLite connection, migrations, transactions, retention/backup helpers</td></tr>
+<tr><td><code>outbox.mjs</code> (new)</td><td>Durable delivery state machine and compatibility export</td></tr>
+<tr><td><code>incidents.mjs</code> (new)</td><td>Incident fingerprint/lifecycle/correlation/CLI</td></tr>
+<tr><td><code>evidence.mjs</code> (new)</td><td>Typed read-only playbooks, artifacts, redaction, no arbitrary execution</td></tr>
+<tr><td><code>cards.mjs</code></td><td>Presentation only; safe markup/chunking; no hidden authority to erase pending work</td></tr>
+<tr><td><code>notify.mjs</code></td><td>Strict Telegram response contract, timeout/unknown semantics, rate-limit metadata, existing secret mount only</td></tr>
+<tr><td><code>digest.mjs</code></td><td>Per-item acknowledgement, pagination/backlog, accurate delivered/auto-label state</td></tr>
+<tr><td><code>label.mjs</code></td><td>Exact decision/delivery/incident join, idempotent labels, atomic/SQLite mutes</td></tr>
+<tr><td><code>history.mjs</code></td><td>Durable compact baselines; visible write failures; 30-day aggregates</td></tr>
+<tr><td><code>health.mjs</code> (new)</td><td>Functional status and independent heartbeat payload; no model dependency</td></tr>
+<tr><td><code>ticker.sh</code></td><td>Supervision, cycle timing, health updates, safe rotation; avoid overlapping writers</td></tr>
+<tr><td><code>Dockerfile</code>, <code>compose.yaml</code></td><td>Healthcheck, non-root/runtime hardening, measured resource limits</td></tr>
+<tr><td><code>deploy.sh</code></td><td>Correct ledger path, no credential scraping, functional smoke/rollback verification</td></tr>
+<tr><td><code>scripts/replay.mjs</code> (new)</td><td>Offline fixture/replay baseline and regression comparison</td></tr>
+<tr><td><code>scripts/migrate-state.mjs</code> (new)</td><td>Backed-up, dry-run-first JSONL/queue migration</td></tr>
+<tr><td><code>test/*</code></td><td>Add ingest, recovery, delivery, incident, evidence, and end-to-end failure tests</td></tr>
+<tr><td><code>docs/*</code></td><td>Live/proposed separation and evidence-backed operating instructions</td></tr>
+</tbody></table></div>
+<hr>
+<h2 id="section-60-9-rollout-and-rollback-strategy">9. Rollout and rollback strategy<a class="anchor" href="#section-60-9-rollout-and-rollback-strategy" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><strong>One release per phase.</strong> Do not combine parser semantics, Jev promotion, incident grouping, and investigation in one deployment.</li>
+<li><strong>Offline replay first.</strong> All safety/accounting/delivery tests use temporary state and injected send/model functions.</li>
+<li><strong>Build candidate image.</strong> No ports, no production volumes, no external network for fixture tests.</li>
+<li><strong>Shadow beside the acting path.</strong> Record proposed decisions without sending; compare against the same input and identical time range.</li>
+<li><strong>Back up before migration.</strong> Preserve original JSONL/config/data and verify a restore/read path. Database migration is explicit, versioned, and dry-run first.</li>
+<li><strong>Canary only with Chris's approval.</strong> A single marked synthetic incident verifies Telegram and feedback; no synthetic flood to the real chat.</li>
+<li><strong>Soak and compare.</strong> Review event accounting, stale sources, queue age, memory, card counts, and feedback. Do not declare success from <code>docker ps</code>.</li>
+<li><strong>Rollback by release artifact.</strong> Revert code/config while preserving the newer data. Provide backward-compatible exports/readers; never delete the new database during rollback.</li>
+<li><strong>Stop conditions:</strong> any unexplained event loss, P0/P1 fixture regression, uncontrolled duplicate alerts, dead feedback links, or growing unreported backlog.</li>
+</ol>
+<hr>
+<h2 id="section-61-10-effort-and-priority">10. Effort and priority<a class="anchor" href="#section-61-10-effort-and-priority" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Milestone</th><th>Focused effort</th><th>Observation</th></tr></thead><tbody>
+<tr><td>---</td><td>---:</td><td>---:</td></tr>
+<tr><td>Phase 0: baseline/replay</td><td>0.5–1 day</td><td>Immediate</td></tr>
+<tr><td>Phase 1: ingestion/coverage</td><td>2–3 days</td><td>24-hour shadow</td></tr>
+<tr><td>Phase 2: durable delivery/health</td><td>3–4 days</td><td>48-hour canary/soak</td></tr>
+<tr><td>Phase 3: incidents/correlation</td><td>3–5 days</td><td>7-day comparison</td></tr>
+<tr><td>Phase 4: evidence investigation</td><td>4–6 days</td><td>Adapter-by-adapter</td></tr>
+<tr><td>Phase 5: evaluation/learning</td><td>2–3 days tooling</td><td>1–2 weeks data</td></tr>
+<tr><td>Phase 6: efficiency/operations</td><td>1–2 days</td><td>1-week filter review</td></tr>
+</tbody></table></div>
+<p><strong>Total:</strong> roughly 16–24 focused engineering days plus observation, not one giant rewrite. Phases 0–3 are the highest-value first milestone: a trustworthy, low-noise incident system. Phase 4 is the next genuinely dramatic user-facing improvement. ML is optional and later.</p>
+<p>If only three things are funded, choose:</p>
+<ol>
+<li>Phases 1–2 integrity and delivery;</li>
+<li>Phase 3 incident lifecycle;</li>
+<li>Phase 4 evidence-backed investigation.</li>
+</ol>
+<hr>
+<h2 id="section-62-11-decisions-needed-from-chris-before-implementation">11. Decisions needed from Chris before implementation<a class="anchor" href="#section-62-11-decisions-needed-from-chris-before-implementation" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><strong>Plan approval:</strong> approve the full roadmap or only Phases 0–2 initially. The earlier efficiency plan remains unstarted without his go.</li>
+<li><strong>Working-tree baseline:</strong> may the existing v3.1 changes be reviewed and committed as the baseline for this work? No unrelated workspace changes will be included.</li>
+<li><strong>Quiet hours:</strong> should deterministic P0 security emergencies and/or independent ops-watch-DOWN alerts be added to the explicit overnight exceptions? No policy change is assumed.</li>
+<li><strong>Initial incident target:</strong> suggested first target is model-lane degradation because it crosses proxy/backend/public-path boundaries; alternative is SSH/FortiGate auth incidents.</li>
+<li><strong>Read-only investigation scope:</strong> approve the first three adapter types and target hosts when Phase 4 starts; plan approval alone does not grant new host access.</li>
+<li><strong>Attention target:</strong> after the seven-day baseline, choose a desired actionable-incident budget (for example, a maximum expected number/day) rather than guessing from the current noisy backlog.</li>
+</ol>
+<hr>
+<h2 id="section-63-12-reproduction-notes-from-this-audit">12. Reproduction notes from this audit<a class="anchor" href="#section-63-12-reproduction-notes-from-this-audit" aria-label="Link to this section">#</a></h2>
+<p>These are audit probes, not new regression tests yet. Phase 0 must turn them into permanent fixtures.</p>
+<ul>
+<li><strong>Backlog:</strong> one synthetic event 30 minutes old, default <code>--window-min 5</code>, temporary state → zero clusters; saved offset equaled input bytes.</li>
+<li><strong>Mixed backlog:</strong> one 35-minute-old and one fresh event → only one event classified.</li>
+<li><strong>Loki over-cap:</strong> mocked 6,001 source lines → 5,000 appended; <code>truncated:false</code>; cursor at newest line.</li>
+<li><strong>Rules:</strong> FortiGate auth fixture had <code>program:event</code>, selector <code>job:event</code>, <code>rule_match:null</code>; SSH fixture had <code>program:sshd</code>, selector <code>job:sshd</code>, <code>rule_match:null</code> against the current auth rule.</li>
+<li><strong>Digest overflow:</strong> 16 queued entries with display cap 15 → 15 shown, zero remaining after rotation.</li>
+<li><strong>Digest production failure:</strong> Telegram <code>400</code> unsupported HTML start tag <code>info</code>; zero digest rows in <code>pings.jsonl</code>; 4,864 queue rows at inspection.</li>
+<li><strong>Delivery contract:</strong> mocked <code>{ok:false}</code> was counted as sent; a thrown send error correctly entered the failed-digest queue. Production <code>notify.mjs</code> normally throws on <code>{ok:false}</code>, but the callee should still enforce the contract.</li>
+<li><strong>Tests:</strong> 43 enabled tests passed and one external contract test skipped. These passing tests do not cover the reproduced ingest/digest edge cases.</li>
+</ul>
+<p>The audit's central conclusion is therefore evidence-based, not a criticism of the project's ambition:</p>
+<blockquote>
+<p>ops-watch already has useful ingestion, classification, and presentation pieces. Its dramatic improvement comes from connecting them with durable state, explicit failure behavior, incident context, and measurable evidence—not from adding another layer of AI on top of uncertain delivery.</p>
+</blockquote>
+<a class="top-link" href="#top">↑ Back to top</a>
+</article></main>
+</div>
+<footer>Generated from <code>projects/ops-watch/PLAN-incident-system.md</code> · Standalone HTML · No external assets or scripts</footer>
+</body></html>

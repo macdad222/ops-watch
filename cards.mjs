@@ -42,14 +42,10 @@ export function friendlyName(source, program, host, cfg) {
   return friendlyBase(source, program, host, cfg).name;
 }
 
-// host suffix unless the friendly name already says it (map values may embed "(.120)" etc.)
+// host suffix REMOVED from titles (v3.1, Chris review): serials/hostnames/LAN IPs stay out of
+// titles and lead lines — the host lives in the expandable block. Group key still separates hosts.
 function titleFor(source, program, host, cfg) {
-  const { name: base, mapped } = friendlyBase(source, program, host, cfg);
-  if (!host || host === 'n/a') return base;
-  if (base.toLowerCase().includes(String(host).toLowerCase())) return base;
-  // a map value that already carries a host hint in parentheses is authoritative — no suffix
-  if (mapped && /\([^)]*\)/.test(base)) return base;
-  return `${base} (${host})`;
+  return friendlyBase(source, program, host, cfg).name;
 }
 
 // ── normalize a ping item ({cluster, verdict}) or a digest item (flat) ───────
@@ -78,7 +74,7 @@ export function groupItems(items, { cfg = {}, windowMin = 5 } = {}) {
   for (const raw of items) {
     const m = normItem(raw);
     const title = titleFor(m.source, m.program, m.host, cfg);
-    const key = `${title}`;
+    const key = `${title}\u241f${m.host || ''}`;   // same friendly name on two hosts = two cards
     if (!groups.has(key)) {
       groups.set(key, { key, title, host: m.host, windowMin, items: [], meta: [], totalCount: 0,
         maxLevel: 'P3', hasP0P1: false, why: '', samples: [], sigs: [], item_ids: [],
@@ -117,7 +113,11 @@ export function plainWhy(why = '', { count = 0, windowMin = 5 } = {}) {
   if (/firewall config change/i.test(w)) return 'The firewall\u2019s configuration was changed.';
   if (/privilege escalation/i.test(w)) return 'Someone elevated to administrator privileges on one of the machines.';
   if (/auth failures across/i.test(w)) return 'Failed login attempts across several different accounts — someone may be guessing passwords.';
-  if (/volume burst/i.test(w)) return `An unusual burst of activity — ${count} events in ${windowMin} minutes, more than usual.`;
+  if (/volume burst/i.test(w)) {
+    const m = w.match(/(\d+)\s*events/i);   // use the SAME count the signal carries (v3.1 consistency)
+    const n = m ? +m[1] : count;
+    return `An unusual burst of activity — ${n} events in ${windowMin} minutes, more than usual.`;
+  }
   if (/error-level log burst/i.test(w)) return `Several error messages in a short time (${count} in ${windowMin} minutes).`;
   if (/critical-severity/i.test(w)) return 'A service reported a critical-severity problem.';
   if (/engine failure|lane failure|fatal error|database fatal/i.test(w)) return 'A service is throwing serious errors and may be down or degraded.';
@@ -227,38 +227,37 @@ function parseQwen(j, groups) {
   return out;
 }
 
-// ── rate all groups: deterministic P0/P1 first, Qwen for the rest, template fallback ──
+// ── rate all groups: Qwen writes EVERY card's lead (incl. P0/P1 rule hits), with a
+// rating floor — P0 stays needs_attention, P1 can't sink below worth_a_look; Qwen may
+// raise but never lower. Template only when Qwen fails/times out or the group is cut
+// by max_groups (rule-hit groups are sorted first so they always get a Qwen slot).
 export async function rateGroups(groups, { cfg = {}, windowMin = 5, qwenFn = qwenRate } = {}) {
   const rated = groups.map(g => ({ ...g, rating: null, headline: '', next_step: '', confidence: 0, qwen: false, fallback: false }));
-  for (const g of rated) {
-    if (g.hasP0P1) {   // deterministic rule hits: Qwen never downgrades these
-      g.rating = 'needs_attention';
-      g.headline = plainWhy(g.why, { count: g.totalCount, windowMin: g.windowMin });
-      g.next_step = templateNextStep(g);
-      g.confidence = 1;
-    }
-  }
-  const needQ = rated.filter(g => !g.rating);
-  // cap Qwen input: rate the biggest groups, template the tail
+  const floorOf = g => (g.hasP0P1 ? (g.maxLevel === 'P0' ? 'needs_attention' : 'worth_a_look') : null);
+  const bySize = [...rated].sort((a, b) => (b.hasP0P1 - a.hasP0P1) || (b.totalCount - a.totalCount));
   const maxGroups = cfg?.cards?.max_groups ?? 12;
-  const qSet = [...needQ].sort((a, b) => b.totalCount - a.totalCount).slice(0, maxGroups);
+  const qSet = bySize.slice(0, maxGroups);
   let q = null;
   if (qSet.length) {
     try { q = await qwenFn(qSet, { cfg, windowMin }); } catch { q = null; }   // never block the send path
   }
   const byIdx = new Map(q ? qSet.map((g, i) => [g.key, q[i]]) : []);
   for (const g of rated) {
-    if (g.rating) continue;
     const a = byIdx.get(g.key);
     if (a) {
-      g.rating = a.rating; g.headline = a.headline || plainWhy(g.why, { count: g.totalCount, windowMin: g.windowMin });
-      g.next_step = a.next_step || ''; g.confidence = a.confidence; g.qwen = true;
+      g.rating = a.rating;
+      g.headline = a.headline || plainWhy(g.why, { count: g.totalCount, windowMin: g.windowMin });
+      g.next_step = a.next_step || '';
+      g.confidence = a.confidence;
+      g.qwen = true;
     } else {
       g.rating = fallbackRating(g);   // Qwen failed → don't flood: novel = no_action
       g.headline = plainWhy(g.why, { count: g.totalCount, windowMin: g.windowMin });
       g.next_step = templateNextStep(g);
       g.fallback = true; g.confidence = 0;
     }
+    const floor = floorOf(g);
+    if (floor && RANK[g.rating] < RANK[floor]) g.rating = floor;   // rule floor beats Qwen
   }
   return rated;
 }
@@ -308,45 +307,48 @@ export function routineSummaryLine(groups) {
   return `✅ <i>Routine, no action needed: ${groups.map(g => `${esc(g.title)} (${g.totalCount})`).join(', ')}</i>`;
 }
 
-// Live ping message: action cards (+buttons) only; no_action groups are one summary line.
-export function renderPing({ groups, pingId, overCap = [], test = false, includeRoutine = false }) {
+// Live ping: ONE Telegram message PER action card, each with its own 3 buttons (v3.1 —
+// one card per message kills button/reply ambiguity; reply-to-message → exactly one card).
+// No header — the card IS the message. Routine summary + overflow line go on the LAST card
+// only (or nowhere); a routine-only message is never sent.
+export function renderCardMessages({ groups, pingId, overflowCount = 0, routineGroups = [], test = false }) {
   const action = groups.filter(g => g.rating !== 'no_action');
-  const routine = groups.filter(g => g.rating === 'no_action');
-  const lines = [];
-  const n = action.length;
-  lines.push(`🛡 <b>ops-watch</b>${test ? ' — SYNTHETIC-TEST' : ''} — ${n === 1 ? '1 thing to check' : `${n} things to check`}`);
-  const cards = [];
-  let gi = 0;
-  for (const g of action) {
-    gi++;
-    const cardId = `${pingId}.g${gi}`;
-    cards.push({ card_id: cardId, key: g.key, title: g.title, rating: g.rating, sigs: g.sigs, item_ids: g.item_ids, question: true, qwen: !!g.qwen });
-    lines.push(renderCardHtml(g));
-  }
-  if (includeRoutine && routine.length) lines.push(routineSummaryLine(routine));
-  if (overCap.length) lines.push(`➕ +${overCap.length} more minor item${overCap.length === 1 ? '' : 's'} — in the 8am digest`);
-  lines.push(HINT);
-  const keyboard = { inline_keyboard: cards.map(c => cardButtons(c.card_id)) };
-  return { body: lines.join('\n\n').slice(0, 3900), keyboard, cards };
+  const messages = [];
+  action.forEach((g, gi) => {
+    const cardId = `${pingId}.g${gi + 1}`;
+    const card = { card_id: cardId, key: g.key, title: g.title, rating: g.rating, sigs: g.sigs, item_ids: g.item_ids, question: true, qwen: !!g.qwen };
+    const isLast = gi === action.length - 1;
+    const lines = [renderCardHtml(g)];
+    if (isLast) {
+      if (overflowCount > 0) lines.push(`➕ +${overflowCount} more to check — in the 8am digest`);
+      if (routineGroups.length) lines.push(routineSummaryLine(routineGroups));
+      lines.push(HINT);
+    }
+    messages.push({ body: lines.join('\n\n').slice(0, 3900), keyboard: { inline_keyboard: [cardButtons(cardId)] }, card });
+  });
+  return { messages, cards: messages.map(m => m.card) };
 }
 
-// Digest message: up to `maxQuestions` question cards (+buttons), rest plain, routine = summary line.
-export function renderDigest({ groups, pingId, questionKeys = new Set(), dateLabel = '', overCount = 0 }) {
-  const lines = [`📬 <b>ops-watch digest</b>${dateLabel ? ` — ${esc(dateLabel)} CT` : ''}`];
+// Digest: ONE body message without buttons (header + plain cards + routine summary + hint),
+// then each question (≤ max_questions) as its OWN short message with its 3 buttons.
+export function renderDigestMessages({ groups, pingId, questionKeys = new Set(), dateLabel = '', overCount = 0 }) {
+  const bodyLines = [`📬 <b>ops-watch digest</b>${dateLabel ? ` — ${esc(dateLabel)} CT` : ''}`];
   const cards = [];
+  const questions = [];
   let gi = 0;
   for (const g of groups) {
     if (g.rating === 'no_action') continue;
     gi++;
     const cardId = `${pingId}.g${gi}`;
     const isQ = questionKeys.has(g.key);
-    cards.push({ card_id: cardId, key: g.key, title: g.title, rating: g.rating, sigs: g.sigs, item_ids: g.item_ids, question: isQ, qwen: !!g.qwen });
-    lines.push(renderCardHtml(g));
+    const card = { card_id: cardId, key: g.key, title: g.title, rating: g.rating, sigs: g.sigs, item_ids: g.item_ids, question: isQ, qwen: !!g.qwen };
+    cards.push(card);
+    if (isQ) questions.push({ body: renderCardHtml(g), keyboard: { inline_keyboard: [cardButtons(cardId)] }, card });
+    else bodyLines.push(renderCardHtml(g));
   }
   const routine = groups.filter(g => g.rating === 'no_action');
-  if (routine.length) lines.push(routineSummaryLine(routine));
-  if (overCount > 0) lines.push(`➕ +${overCount} more minor item${overCount === 1 ? '' : 's'} — full detail in held.jsonl / shadow ledger`);
-  lines.push(HINT);
-  const keyboard = { inline_keyboard: cards.filter(c => c.question).map(c => cardButtons(c.card_id)) };
-  return { body: lines.join('\n\n').slice(0, 3900), keyboard, cards };
+  if (routine.length) bodyLines.push(routineSummaryLine(routine));
+  if (overCount > 0) bodyLines.push(`➕ +${overCount} more minor item${overCount === 1 ? '' : 's'} — full detail in held.jsonl / shadow ledger`);
+  bodyLines.push(HINT);
+  return { body: { body: bodyLines.join('\n\n').slice(0, 3900), keyboard: null }, questions, cards };
 }

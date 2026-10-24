@@ -35,17 +35,23 @@ function readJsonl(name) {
   return out;
 }
 
-function findPing({ msg, pingId, cardId }) {
+function findPingAndCard({ msg, pingId, cardId }) {
   const pings = readJsonl('pings.jsonl');
   if (msg != null) {
-    for (let i = pings.length - 1; i >= 0; i--) if (String(pings[i].message_id) === String(msg)) return pings[i];
+    for (let i = pings.length - 1; i >= 0; i--) {
+      const p = pings[i];
+      if (String(p.message_id) === String(msg)) return { ping: p, card: null };
+      // v3.1: one card per message — a card-level message_id resolves EXACTLY one card
+      const c = (p.cards || []).find(c => c.message_id != null && String(c.message_id) === String(msg));
+      if (c) return { ping: p, card: c };
+    }
     return null;
   }
   if (cardId) {
-    for (let i = pings.length - 1; i >= 0; i--) if ((pings[i].cards || []).some(c => c.card_id === cardId)) return pings[i];
+    for (let i = pings.length - 1; i >= 0; i--) if ((pings[i].cards || []).some(c => c.card_id === cardId)) return { ping: pings[i], card: null };
     return null;
   }
-  for (let i = pings.length - 1; i >= 0; i--) if (pings[i].ping_id === pingId) return pings[i];
+  for (let i = pings.length - 1; i >= 0; i--) if (pings[i].ping_id === pingId) return { ping: pings[i], card: null };
   return null;
 }
 
@@ -83,8 +89,9 @@ if (!label || !LABELS.includes(label) || (!msg && !pingId && !cardFilter)) {
 }
 if (!VIAS.includes(via)) { console.error(`bad --via ${via}`); process.exit(2); }
 
-const ping = findPing({ msg, pingId, cardId: cardFilter });
-if (!ping) { console.error(`no pings.jsonl row for ${msg ? 'message ' + msg : 'ping ' + pingId}`); process.exit(1); }
+const pingCard = findPingAndCard({ msg, pingId, cardId: cardFilter });
+const ping = pingCard?.ping;
+if (!ping) { console.error(`no pings.jsonl row for ${msg ? 'message ' + msg : cardFilter ? 'card ' + cardFilter : 'ping ' + pingId}`); process.exit(1); }
 const shadow = shadowBySig();
 
 // ── resolve which items the label applies to ─────────────────────────────────
@@ -95,15 +102,22 @@ if (cardFilter) {
   if (!card) { console.error(`no card ${cardFilter} in ping ${ping.ping_id}`); process.exit(1); }
   targetCardIds = [card.card_id];
   items = items.filter(it => card.sigs?.includes(it.sig));
+} else if (pingCard.card) {
+  // v3.1: the message_id matched ONE card directly (one card per message) — clean resolution
+  targetCardIds = [pingCard.card.card_id];
+  items = items.filter(it => pingCard.card.sigs?.includes(it.sig));
 } else if (itemFilter) {
   items = items.filter(it => it.item_id === itemFilter);
 } else if (via === 'reply' && Array.isArray(ping.cards) && ping.cards.length) {
-  // human reply phrase → card(s): one actionable card = that card; several = all of them
+  // reply without a card-level message_id: exactly one actionable card → that card;
+  // several → AMBIGUOUS, do NOT guess (Jarvon asks Chris which card)
   const actionable = ping.cards.filter(c => c.rating && c.rating !== 'no_action');
-  if (actionable.length) {
-    targetCardIds = actionable.map(c => c.card_id);
-    const sigs = new Set(actionable.flatMap(c => c.sigs || []));
-    items = items.filter(it => sigs.has(it.sig));
+  if (actionable.length === 1) {
+    targetCardIds = [actionable[0].card_id];
+    items = items.filter(it => actionable[0].sigs?.includes(it.sig));
+  } else if (actionable.length > 1) {
+    console.error(`AMBIGUOUS: ${actionable.length} actionable cards on this message (${actionable.map(c => c.card_id + ' ' + c.title).join(' | ')}). Ask Chris which one — do not guess.`);
+    process.exit(3);
   }
   // no actionable cards → fall through: whole message (all items)
 }
