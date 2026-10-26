@@ -19,7 +19,7 @@ const args = process.argv.slice(2);
 const outArg = args.indexOf('--out') >= 0 ? args[args.indexOf('--out') + 1] : null;
 const noQwen = args.includes('--no-qwen') || process.env.OPSWATCH_DISABLE_QWEN === '1';
 if (noQwen) process.env.OPSWATCH_DISABLE_QWEN = '1';
-const HOST = 'chris@192.168.5.110';
+const HOST = 'chris@192.168.5.120';
 
 function sshCat(file) {
   try {

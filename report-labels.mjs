@@ -13,7 +13,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const days = parseInt(args[(args.indexOf('--days') ?? -2) + 1]) || 7;
 const outArg = args.indexOf('--out') >= 0 ? args[args.indexOf('--out') + 1] : null;
-const HOST = 'chris@192.168.5.110';
+const HOST = 'chris@192.168.5.120';
 
 function sshCat(file) {
   try {
